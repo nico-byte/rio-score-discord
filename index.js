@@ -136,7 +136,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`✅ Bot online als ${client.user.tag}`);
   await registerCommands();
 });
@@ -144,33 +144,29 @@ client.once('ready', async () => {
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand() || interaction.commandName !== 'rio') return;
 
-  await interaction.deferReply({ ephemeral: false });
+  try {
+    await interaction.deferReply();
 
-  const name   = interaction.options.getString('name').trim();
-  const realm  = interaction.options.getString('realm').trim().replace(/\s+/g, '-');
-  const region = interaction.options.getString('region') ?? 'eu';
+    const name   = interaction.options.getString('name').trim();
+    const realm  = interaction.options.getString('realm').trim().replace(/\s+/g, '-');
+    const region = interaction.options.getString('region') ?? 'eu';
 
-  // Fetch from Raider.IO
-  const result = await fetchRioScore(name, realm, region);
+    const result = await fetchRioScore(name, realm, region);
+    if (result.error) return interaction.editReply({ content: `❌ ${result.error}` });
 
-  if (result.error) {
-    return interaction.editReply({ content: `❌ ${result.error}` });
+    const { score, spec, cls, thumbnail, profileUrl } = result;
+    const tier = await updateTierRole(interaction.member, score);
+    await updateNickname(interaction.member, name, score);
+
+    const embed = buildEmbed(name, realm, region, score, spec, cls, thumbnail, profileUrl, tier ?? TIERS[TIERS.length - 1]);
+    await interaction.editReply({ embeds: [embed] });
+
+  } catch (err) {
+    console.error('Command error:', err);
   }
-
-  const { score, spec, cls, thumbnail, profileUrl } = result;
-  const member = interaction.member;
-
-  // Update role + nickname
-  const tier = await updateTierRole(member, score);
-  await updateNickname(member, name, score);
-
-  const embed = buildEmbed(
-    name, realm, region, score, spec, cls, thumbnail, profileUrl,
-    tier ?? TIERS[TIERS.length - 1],
-  );
-
-  await interaction.editReply({ embeds: [embed] });
 });
 
 // ─── Start ──────────────────────────────────────────────────────────────────
+client.on('error', err => console.error('Client error:', err));
+process.on('unhandledRejection', err => console.error('Unhandled rejection:', err));
 client.login(process.env.DISCORD_TOKEN);
