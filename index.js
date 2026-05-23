@@ -144,7 +144,12 @@ client.once('clientReady', async () => {
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand() || interaction.commandName !== 'rio') return;
 
+  // Calculate the delay in milliseconds
+  const delay = Date.now() - interaction.createdTimestamp;
+  console.log(`Interaction received. Delay: ${delay}ms`);
+
   try {
+    // If the delay is already > 3000ms, deferReply will always fail.
     await interaction.deferReply();
 
     const name   = interaction.options.getString('name').trim();
@@ -169,6 +174,4 @@ client.on('interactionCreate', async interaction => {
 // ─── Start ──────────────────────────────────────────────────────────────────
 client.on('error', err => console.error('Client error:', err));
 process.on('unhandledRejection', err => console.error('Unhandled rejection:', err));
-const http = require('http');
-http.createServer((req, res) => res.end('ok')).listen(process.env.PORT || 3000);
 client.login(process.env.DISCORD_TOKEN);
