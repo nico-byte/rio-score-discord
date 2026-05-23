@@ -169,4 +169,6 @@ client.on('interactionCreate', async interaction => {
 // ─── Start ──────────────────────────────────────────────────────────────────
 client.on('error', err => console.error('Client error:', err));
 process.on('unhandledRejection', err => console.error('Unhandled rejection:', err));
+const http = require('http');
+http.createServer((req, res) => res.end('ok')).listen(process.env.PORT || 3000);
 client.login(process.env.DISCORD_TOKEN);
