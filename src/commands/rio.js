@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const db                = require('../db');
 const { fetchRioScore } = require('../rioApi');
-const { applyRoles, TIERS } = require('../roles');
+const { applyRolesFromActive, TIERS } = require('../roles');
 
 const definition = new SlashCommandBuilder()
   .setName('rio')
