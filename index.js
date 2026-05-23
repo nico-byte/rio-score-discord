@@ -5,6 +5,7 @@ const rioCommand    = require('./src/commands/rio');
 const addaltCommand = require('./src/commands/addalt');
 const myaltsCommand = require('./src/commands/myalts');
 const { startScheduler } = require('./src/scheduler');
+const { startLfgForwarder } = require('./src/lfgForwarder');
 
 // ─── Command registry ───────────────────────────────────────────────────────
 const COMMANDS = {
@@ -29,13 +30,18 @@ async function registerCommands() {
 
 // ─── Discord client ─────────────────────────────────────────────────────────
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ],
 });
 
 client.once('clientReady', async () => {
   console.log(`✅ Bot online als ${client.user.tag}`);
   await registerCommands();
   startScheduler(client);
+  startLfgForwarder(client);
 });
 
 client.on('interactionCreate', async interaction => {
