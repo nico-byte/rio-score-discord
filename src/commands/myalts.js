@@ -12,6 +12,32 @@ const definition = new SlashCommandBuilder()
   .setName('myalts')
   .setDescription('Zeigt alle deine verknüpften Charaktere');
 
+// ── Timeout tracking ─────────────────────────────────────────────────────────
+// Keyed by userId → { timeout, interaction }
+const activeTimeouts = new Map();
+const TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
+
+function resetTimeout(userId, interaction) {
+  // Clear existing timeout for this user
+  const existing = activeTimeouts.get(userId);
+  if (existing) clearTimeout(existing.timeout);
+
+  const timeout = setTimeout(async () => {
+    activeTimeouts.delete(userId);
+    try {
+      await interaction.editReply({
+        content: '⏱️ Sitzung abgelaufen. Nutze `/myalts` erneut.',
+        embeds: [],
+        components: [],
+      });
+    } catch (_) {
+      // Interaction token may have expired — silently ignore
+    }
+  }, TIMEOUT_MS);
+
+  activeTimeouts.set(userId, { timeout, interaction });
+}
+
 async function execute(interaction) {
   await interaction.deferReply({ ephemeral: true });
   await showSheet(interaction, 0);
@@ -47,7 +73,7 @@ async function showSheet(interaction, index) {
       { name: 'M+ Score',        value: `**${score}**`,                                 inline: true },
       { name: 'Status',          value: char.is_active ? '✅ Aktiv' : '⬜ Inaktiv',      inline: true },
     )
-    .setFooter({ text: `Charakter ${i + 1} von ${total}` });
+    .setFooter({ text: `Charakter ${i + 1} von ${total}  •  Schließt nach 3 Minuten Inaktivität` });
 
   // ── Navigation row ──────────────────────────────────────────────────────
   const navRow = new ActionRowBuilder().addComponents(
@@ -81,6 +107,9 @@ async function showSheet(interaction, index) {
   );
 
   await interaction.editReply({ embeds: [embed], components: [navRow, actionRow], content: '' });
+
+  // Reset the 3-minute inactivity timer on every render
+  resetTimeout(interaction.user.id, interaction);
 }
 
 // ── Button handler (called from index.js) ───────────────────────────────────

@@ -43,7 +43,7 @@ async function updateScore(id, score, spec, cls) {
 }
 
 async function setActive(discordId, id) {
-  await db.execute({ sql: `UPDATE characters SET is_active=0 WHERE discord_id=?`, args: [discordId] });
+  // await db.execute({ sql: `UPDATE characters SET is_active=0 WHERE discord_id=?`, args: [discordId] });
   await db.execute({ sql: `UPDATE characters SET is_active=1 WHERE id=? AND discord_id=?`, args: [id, discordId] });
 }
 
