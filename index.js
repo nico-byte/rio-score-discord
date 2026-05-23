@@ -136,7 +136,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 
-client.once(Events.ClientReady, async () => {
+client.once('ready', async () => {
   console.log(`✅ Bot online als ${client.user.tag}`);
   await registerCommands();
 });
