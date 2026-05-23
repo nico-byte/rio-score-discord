@@ -65,4 +65,5 @@ client.on('interactionCreate', async interaction => {
 client.on('error', err => console.error('Client error:', err));
 process.on('unhandledRejection', err => console.error('Unhandled rejection:', err));
 
-client.login(process.env.DISCORD_TOKEN);
+const db = require('./src/db');
+db.init().then(() => client.login(process.env.DISCORD_TOKEN));
