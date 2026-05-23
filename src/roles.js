@@ -37,8 +37,8 @@ async function applyRolesFromActive(member, activeChars) {
   await updateClassRoles(member, activeClasses);
 
   // Update nickname to highest-score active char
-  const top = activeChars.sort((a, b) => (b.rio_score ?? 0) - (a.rio_score ?? 0))[0];
-  if (top) await updateNickname(member, top.char_name, top.rio_score ?? 0);
+  // const top = activeChars.sort((a, b) => (b.rio_score ?? 0) - (a.rio_score ?? 0))[0];
+  // if (top) await updateNickname(member, top.char_name, top.rio_score ?? 0);
 
   return TIERS.find(t => highestScore >= t.min) ?? TIERS[TIERS.length - 1];
 }
@@ -50,8 +50,27 @@ async function applyRolesFromActive(member, activeChars) {
 async function applyRoles(member, score, cls, charName) {
   await updateTierRole(member, score);
   await updateClassRoles(member, [cls]);
-  await updateNickname(member, charName, score);
+  // await updateNickname(member, charName, score);
   return TIERS.find(t => score >= t.min) ?? TIERS[TIERS.length - 1];
+}
+
+async function updateClassRoles(member, classes) {
+  const allIds     = Object.values(CLASS_ROLES).filter(Boolean);
+  const correctIds = classes.map(c => CLASS_ROLES[c]).filter(Boolean);
+
+  // 1. Find roles they HAVE that they SHOULD NOT have anymore
+  const rolesToRemove = allIds.filter(id => 
+    member.roles.cache.has(id) && !correctIds.includes(id)
+  );
+
+  // 2. Find roles they DO NOT HAVE that they SHOULD have
+  const rolesToAdd = correctIds.filter(id => 
+    !member.roles.cache.has(id)
+  );
+
+  // Apply only the necessary changes
+  for (const id of rolesToRemove) await member.roles.remove(id).catch(() => {});
+  for (const id of rolesToAdd) await member.roles.add(id).catch(() => {});
 }
 
 async function updateTierRole(member, score) {
@@ -59,18 +78,17 @@ async function updateTierRole(member, score) {
   const correct = TIERS.find(t => score >= t.min);
   if (!correct?.roleId) return;
 
-  for (const id of allIds) await member.roles.remove(id).catch(() => {});
-  await member.roles.add(correct.roleId).catch(() => {});
-}
-
-async function updateClassRoles(member, classes) {
-  const allIds     = Object.values(CLASS_ROLES).filter(Boolean);
-  const correctIds = classes.map(c => CLASS_ROLES[c]).filter(Boolean);
-
-  // Remove all class roles first
-  for (const id of allIds) await member.roles.remove(id).catch(() => {});
-  // Add one per active class
-  for (const id of correctIds) await member.roles.add(id).catch(() => {});
+  // 1. Find any old tier roles they have that aren't the correct one
+  const rolesToRemove = allIds.filter(id => 
+    member.roles.cache.has(id) && id !== correct.roleId
+  );
+  
+  for (const id of rolesToRemove) await member.roles.remove(id).catch(() => {});
+  
+  // 2. Add the correct role only if they don't already have it
+  if (!member.roles.cache.has(correct.roleId)) {
+    await member.roles.add(correct.roleId).catch(() => {});
+  }
 }
 
 async function updateNickname(member, charName, score) {
