@@ -32,7 +32,8 @@ async function execute(interaction) {
   const { score, spec, cls, thumbnail, profileUrl } = result;
 
   await db.upsertCharacter(interaction.user.id, name, realm, region);
-  const char = await db.getCharacters(interaction.user.id).find(
+  const chars = await db.getCharacters(interaction.user.id);
+  const char  = chars.find(
     c => c.char_name === name && c.realm === realm && c.region === region
   );
   await db.updateScore(char.id, score, spec, cls);
