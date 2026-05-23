@@ -21,7 +21,7 @@ function startScheduler(client) {
 async function runDailyRefresh(client) {
   console.log('🔄 Starting daily Rio refresh...');
 
-  const characters = db.getStaleCharacters();
+  const characters = await db.getStaleCharacters();
   console.log(`   Found ${characters.length} characters to refresh`);
 
   let updated = 0;
@@ -36,7 +36,7 @@ async function runDailyRefresh(client) {
       continue;
     }
 
-    db.updateScore(char.id, result.score, result.spec, result.cls);
+    await db.updateScore(char.id, result.score, result.spec, result.cls);
     updated++;
 
     // Only update Discord roles/nickname if this is the user's active character

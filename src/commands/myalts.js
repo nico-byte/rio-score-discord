@@ -18,7 +18,7 @@ async function execute(interaction) {
 }
 
 async function showAlts(interaction) {
-  const characters = db.getCharacters(interaction.user.id);
+  const characters = await db.getCharacters(interaction.user.id);
 
   if (!characters.length) {
     return interaction.editReply('Du hast noch keine Charaktere verknüpft. Nutze `/rio` um deinen Hauptcharakter zu setzen.');
@@ -67,7 +67,7 @@ async function showAlts(interaction) {
 async function handleButton(interaction) {
   const [action, idStr] = interaction.customId.split('_');
   const charId = parseInt(idStr, 10);
-  const char   = db.getCharacterById(charId);
+  const char   = await db.getCharacterById(charId);
 
   if (!char || char.discord_id !== interaction.user.id) {
     return interaction.reply({ content: '❌ Charakter nicht gefunden.', ephemeral: true });
@@ -75,7 +75,7 @@ async function handleButton(interaction) {
 
   if (action === 'setactive') {
     await interaction.deferUpdate();
-    db.setActive(interaction.user.id, charId);
+    await db.setActive(interaction.user.id, charId);
 
     // Update Discord roles + nickname to reflect new active char
     await applyRoles(interaction.member, char.rio_score, char.class, char.char_name);
@@ -86,13 +86,13 @@ async function handleButton(interaction) {
   } else if (action === 'remove') {
     await interaction.deferUpdate();
     const wasActive = char.is_active;
-    db.removeCharacter(charId, interaction.user.id);
+    await db.removeCharacter(charId, interaction.user.id);
 
     if (wasActive) {
       // Auto-activate the next available character
-      const remaining = db.getCharacters(interaction.user.id);
+      const remaining = await db.getCharacters(interaction.user.id);
       if (remaining.length) {
-        db.setActive(interaction.user.id, remaining[0].id);
+        await db.setActive(interaction.user.id, remaining[0].id);
         await applyRoles(interaction.member, remaining[0].rio_score, remaining[0].class, remaining[0].char_name);
       }
     }

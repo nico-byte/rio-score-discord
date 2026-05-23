@@ -31,11 +31,11 @@ async function execute(interaction) {
 
   const { score, spec, cls, thumbnail, profileUrl } = result;
 
-  db.upsertCharacter(interaction.user.id, name, realm, region);
-  const char = db.getCharacters(interaction.user.id).find(
+  await db.upsertCharacter(interaction.user.id, name, realm, region);
+  const char = await db.getCharacters(interaction.user.id).find(
     c => c.char_name === name && c.realm === realm && c.region === region
   );
-  db.updateScore(char.id, score, spec, cls);
+  await db.updateScore(char.id, score, spec, cls);
 
   const tier = TIERS.find(t => score >= t.min) ?? TIERS[TIERS.length - 1];
 

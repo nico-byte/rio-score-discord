@@ -32,12 +32,12 @@ async function execute(interaction) {
   const { score, spec, cls, thumbnail, profileUrl } = result;
 
   // Save to DB and mark as active
-  db.upsertCharacter(interaction.user.id, name, realm, region);
-  const char = db.getCharacters(interaction.user.id).find(
+  await db.upsertCharacter(interaction.user.id, name, realm, region);
+  const char = await db.getCharacters(interaction.user.id).find(
     c => c.char_name === name && c.realm === realm && c.region === region
   );
-  db.updateScore(char.id, score, spec, cls);
-  db.setActive(interaction.user.id, char.id);
+  await db.updateScore(char.id, score, spec, cls);
+  await db.setActive(interaction.user.id, char.id);
 
   // Apply Discord roles + nickname
   const tier = await applyRoles(interaction.member, score, cls, name);
