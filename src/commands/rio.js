@@ -40,8 +40,12 @@ async function execute(interaction) {
   await db.updateScore(char.id, score, spec, cls);
   await db.setActive(interaction.user.id, char.id);
 
-  // Apply Discord roles + nickname
-  const tier = await applyRoles(interaction.member, score, cls, name);
+  // We fetch ALL of the user's characters from the database
+  const allUserChars = await db.getCharacters(interaction.user.id);
+
+  // We use your applyRolesFromActive function
+  // This will automatically find the highest score and combine class roles!
+  const tier = await applyRolesFromActive(interaction.member, allUserChars);
 
   const embed = new EmbedBuilder()
     .setColor(tier.color)
