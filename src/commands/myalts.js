@@ -4,10 +4,9 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  StringSelectMenuBuilder,
 } = require('discord.js');
-const db                        = require('../db');
-const { applyRolesFromActive }  = require('../roles');
+const db                       = require('../db');
+const { applyRolesFromActive } = require('../roles');
 
 const definition = new SlashCommandBuilder()
   .setName('myalts')
@@ -15,130 +14,123 @@ const definition = new SlashCommandBuilder()
 
 async function execute(interaction) {
   await interaction.deferReply({ ephemeral: true });
-  await showOverview(interaction);
+  await showSheet(interaction, 0);
 }
 
-// ── Main overview ───────────────────────────────────────────────────────────
-async function showOverview(interaction) {
+// ── Build and send/edit the character sheet for a given index ───────────────
+async function showSheet(interaction, index) {
   const characters = await db.getCharacters(interaction.user.id);
 
   if (!characters.length) {
-    return interaction.editReply({
-      content: 'Du hast noch keine Charaktere verknüpft. Nutze `/rio` um deinen Hauptcharakter zu setzen.',
-      components: [],
-    });
+    return interaction.editReply({ embeds: [], components: [],
+      content: 'Du hast noch keine Charaktere. Nutze `/rio` oder `/addalt`.' });
   }
 
-  const lines = characters.map(c => {
-    const status = c.is_active ? '✅' : '⬜';
-    const score  = c.rio_score ? `${Number(c.rio_score).toLocaleString('de-DE')} IO` : '—';
-    const cls    = c.class ?? '?';
-    return `${status} **${c.char_name}** — ${cls} — ${score} *(${c.realm} / ${c.region.toUpperCase()})*`;
-  });
+  // Clamp index
+  const i    = Math.max(0, Math.min(index, characters.length - 1));
+  const char = characters[i];
+  const total = characters.length;
+
+  const score     = char.rio_score ? Number(char.rio_score).toLocaleString('de-DE') + ' IO' : '—';
+  const profileUrl = char.class
+    ? `https://raider.io/characters/${char.region}/${char.realm}/${char.char_name}`
+    : null;
 
   const embed = new EmbedBuilder()
-    .setColor(0x5865F2)
-    .setTitle('Deine Charaktere')
-    .setDescription(lines.join('\n'))
-    .setFooter({ text: '✅ Aktiv  •  ⬜ Inaktiv  •  Aktive Chars bestimmen Rollen & Nickname' });
+    .setColor(char.is_active ? 0x2ecc71 : 0x95a5a6)
+    .setTitle(`${char.is_active ? '✅' : '⬜'} ${char.char_name}`)
+    .setURL(profileUrl)
+    .addFields(
+      { name: 'Realm',           value: `${char.realm} (${char.region.toUpperCase()})`, inline: true },
+      { name: 'Klasse',          value: char.class ?? '—',                              inline: true },
+      { name: 'Spezialisierung', value: char.spec  ?? '—',                              inline: true },
+      { name: 'M+ Score',        value: `**${score}**`,                                 inline: true },
+      { name: 'Status',          value: char.is_active ? '✅ Aktiv' : '⬜ Inaktiv',      inline: true },
+    )
+    .setFooter({ text: `Charakter ${i + 1} von ${total}` });
 
-  const row = new ActionRowBuilder().addComponents(
+  // ── Navigation row ──────────────────────────────────────────────────────
+  const navRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId('myalts_btn_activate')
-      .setLabel('Aktivieren')
-      .setStyle(ButtonStyle.Success),
+      .setCustomId(`myalts_prev_${i}`)
+      .setLabel('◀')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(i === 0),
     new ButtonBuilder()
-      .setCustomId('myalts_btn_deactivate')
-      .setLabel('Deaktivieren')
-      .setStyle(ButtonStyle.Secondary),
+      .setCustomId(`myalts_next_${i}`)
+      .setLabel('▶')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(i === total - 1),
+  );
+
+  // ── Action row for this character ───────────────────────────────────────
+  const actionRow = new ActionRowBuilder().addComponents(
+    char.is_active
+      ? new ButtonBuilder()
+          .setCustomId(`myalts_deactivate_${char.id}_${i}`)
+          .setLabel('Deaktivieren')
+          .setStyle(ButtonStyle.Secondary)
+      : new ButtonBuilder()
+          .setCustomId(`myalts_activate_${char.id}_${i}`)
+          .setLabel('Aktivieren')
+          .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
-      .setCustomId('myalts_btn_delete')
+      .setCustomId(`myalts_delete_${char.id}_${i}`)
       .setLabel('Entfernen')
       .setStyle(ButtonStyle.Danger),
   );
 
-  await interaction.editReply({ embeds: [embed], components: [row] });
+  await interaction.editReply({ embeds: [embed], components: [navRow, actionRow], content: '' });
 }
 
 // ── Button handler (called from index.js) ───────────────────────────────────
 async function handleButton(interaction) {
-  const action = interaction.customId; // myalts_btn_activate / _deactivate / _delete
-  const characters = await db.getCharacters(interaction.user.id);
-
-  if (!characters.length) {
-    return interaction.reply({ content: 'Keine Charaktere gefunden.', ephemeral: true });
-  }
-
-  let eligible;
-  let placeholder;
-
-  if (action === 'myalts_btn_activate') {
-    eligible    = characters.filter(c => !c.is_active);
-    placeholder = 'Welchen Charakter aktivieren?';
-  } else if (action === 'myalts_btn_deactivate') {
-    eligible    = characters.filter(c => c.is_active);
-    placeholder = 'Welchen Charakter deaktivieren?';
-  } else {
-    eligible    = characters;
-    placeholder = 'Welchen Charakter entfernen?';
-  }
-
-  if (!eligible.length) {
-    await interaction.reply({
-      content: action === 'myalts_btn_activate'
-        ? '✅ Alle Charaktere sind bereits aktiv.'
-        : action === 'myalts_btn_deactivate'
-        ? '⬜ Keine aktiven Charaktere zum Deaktivieren.'
-        : '❌ Keine Charaktere vorhanden.',
-      ephemeral: true,
-    });
-    return;
-  }
-
-  const selectId = action === 'myalts_btn_activate'   ? 'myalts_sel_activate'
-                 : action === 'myalts_btn_deactivate' ? 'myalts_sel_deactivate'
-                 :                                      'myalts_sel_delete';
-
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId(selectId)
-    .setPlaceholder(placeholder)
-    .addOptions(eligible.map(c => ({
-      label: `${c.char_name} (${c.realm})`,
-      description: `${c.class ?? '?'} — ${c.rio_score ? Number(c.rio_score).toLocaleString('de-DE') + ' IO' : 'Kein Score'}`,
-      value: String(c.id),
-    })));
-
-  const row = new ActionRowBuilder().addComponents(menu);
-  await interaction.reply({ components: [row], ephemeral: true });
-}
-
-// ── Select menu handler (called from index.js) ───────────────────────────────
-async function handleSelect(interaction) {
-  const charId = parseInt(interaction.values[0], 10);
-  const char   = await db.getCharacterById(charId);
-
-  if (!char || char.discord_id !== interaction.user.id) {
-    return interaction.reply({ content: '❌ Charakter nicht gefunden.', ephemeral: true });
-  }
+  const [, action, ...rest] = interaction.customId.split('_');
+  // customId formats:
+  //   myalts_prev_{index}
+  //   myalts_next_{index}
+  //   myalts_activate_{charId}_{index}
+  //   myalts_deactivate_{charId}_{index}
+  //   myalts_delete_{charId}_{index}
 
   await interaction.deferUpdate();
 
-  if (interaction.customId === 'myalts_sel_activate') {
+  if (action === 'prev') {
+    const index = parseInt(rest[0], 10);
+    return showSheet(interaction, index - 1);
+  }
+
+  if (action === 'next') {
+    const index = parseInt(rest[0], 10);
+    return showSheet(interaction, index + 1);
+  }
+
+  const charId = parseInt(rest[0], 10);
+  const index  = parseInt(rest[1], 10);
+  const char   = await db.getCharacterById(charId);
+
+  if (!char || char.discord_id !== interaction.user.id) {
+    return interaction.editReply({ content: '❌ Charakter nicht gefunden.', embeds: [], components: [] });
+  }
+
+  if (action === 'activate') {
     await db.setActive(interaction.user.id, charId);
-  } else if (interaction.customId === 'myalts_sel_deactivate') {
+  } else if (action === 'deactivate') {
     await db.setInactive(interaction.user.id, charId);
-  } else {
+  } else if (action === 'delete') {
     await db.removeCharacter(charId, interaction.user.id);
   }
 
-  // Recompute roles based on new active set
+  // Recompute Discord roles from new active set
   const activeChars = await db.getActiveCharacters(interaction.user.id);
   if (activeChars.length) {
     await applyRolesFromActive(interaction.member, activeChars);
   }
 
-  // Refresh the overview message
-  await showOverview(interaction);
+  // Stay on same page (or go back one if we deleted the last entry)
+  const remaining = await db.getCharacters(interaction.user.id);
+  const newIndex  = Math.min(index, Math.max(0, remaining.length - 1));
+  await showSheet(interaction, newIndex);
 }
 
-module.exports = { definition, execute, handleButton, handleSelect };
+module.exports = { definition, execute, handleButton };

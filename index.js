@@ -51,22 +51,11 @@ client.on('interactionCreate', async interaction => {
     return;
   }
 
-  // Buttons (only /myalts buttons)
-  if (interaction.isButton() && interaction.customId.startsWith('myalts_btn_')) {
+  if (interaction.isButton() && interaction.customId.startsWith('myalts_')) {
     try {
       await myaltsCommand.handleButton(interaction);
     } catch (err) {
       console.error('Button error:', err);
-    }
-    return;
-  }
-
-  // Select menus (only /myalts selects)
-  if (interaction.isStringSelectMenu() && interaction.customId.startsWith('myalts_sel_')) {
-    try {
-      await myaltsCommand.handleSelect(interaction);
-    } catch (err) {
-      console.error('Select error:', err);
     }
   }
 });
