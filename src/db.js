@@ -47,6 +47,19 @@ async function setActive(discordId, id) {
   await db.execute({ sql: `UPDATE characters SET is_active=1 WHERE id=? AND discord_id=?`, args: [id, discordId] });
 }
 
+async function setInactive(discordId, id) {
+  await db.execute({
+    sql:  `UPDATE characters SET is_active=0 WHERE id=? AND discord_id=?`,
+    args: [id, discordId],
+  });
+}
+
+// Used by /rio to enforce single-active when explicitly setting a new main
+async function setOnlyActive(discordId, id) {
+  await db.execute({ sql: `UPDATE characters SET is_active=0 WHERE discord_id=?`, args: [discordId] });
+  await db.execute({ sql: `UPDATE characters SET is_active=1 WHERE id=? AND discord_id=?`, args: [id, discordId] });
+}
+
 async function removeCharacter(id, discordId) {
   await db.execute({ sql: `DELETE FROM characters WHERE id=? AND discord_id=?`, args: [id, discordId] });
 }
@@ -54,6 +67,15 @@ async function removeCharacter(id, discordId) {
 async function getCharacters(discordId) {
   const res = await db.execute({
     sql:  `SELECT * FROM characters WHERE discord_id=? ORDER BY is_active DESC, id ASC`,
+    args: [discordId],
+  });
+  return res.rows;
+}
+
+// Returns all active characters for a user (can be multiple)
+async function getActiveCharacters(discordId) {
+  const res = await db.execute({
+    sql:  `SELECT * FROM characters WHERE discord_id=? AND is_active=1`,
     args: [discordId],
   });
   return res.rows;
@@ -83,6 +105,6 @@ async function getStaleCharacters() {
 
 module.exports = {
   init,
-  upsertCharacter, updateScore, setActive, removeCharacter,
-  getCharacters, getActiveCharacter, getCharacterById, getStaleCharacters,
+  upsertCharacter, updateScore, setActive, setInactive, setOnlyActive, removeCharacter,
+  getCharacters, getActiveCharacters, getActiveCharacter, getCharacterById, getStaleCharacters,
 };

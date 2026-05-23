@@ -24,32 +24,53 @@ const CLASS_ROLES = {
 };
 
 /**
- * Updates tier role, class role and nickname for a guild member.
- * Safe to call from both commands and the daily scheduler.
- * Returns the matched tier (for embed coloring).
+ * Called after any activation/deactivation change.
+ * Recalculates tier role (highest score among active chars) and
+ * class roles (one per unique class among active chars).
+ * activeChars = array of character rows that are currently active.
+ */
+async function applyRolesFromActive(member, activeChars) {
+  const highestScore = activeChars.reduce((max, c) => Math.max(max, c.rio_score ?? 0), 0);
+  const activeClasses = [...new Set(activeChars.map(c => c.class).filter(Boolean))];
+
+  await updateTierRole(member, highestScore);
+  await updateClassRoles(member, activeClasses);
+
+  // Update nickname to highest-score active char
+  const top = activeChars.sort((a, b) => (b.rio_score ?? 0) - (a.rio_score ?? 0))[0];
+  if (top) await updateNickname(member, top.char_name, top.rio_score ?? 0);
+
+  return TIERS.find(t => highestScore >= t.min) ?? TIERS[TIERS.length - 1];
+}
+
+/**
+ * Convenience wrapper used by /rio and the scheduler
+ * when only one character is relevant.
  */
 async function applyRoles(member, score, cls, charName) {
   await updateTierRole(member, score);
-  await updateClassRole(member, cls);
+  await updateClassRoles(member, [cls]);
   await updateNickname(member, charName, score);
   return TIERS.find(t => score >= t.min) ?? TIERS[TIERS.length - 1];
 }
 
 async function updateTierRole(member, score) {
-  const allIds    = TIERS.map(t => t.roleId).filter(Boolean);
-  const correct   = TIERS.find(t => score >= t.min);
+  const allIds  = TIERS.map(t => t.roleId).filter(Boolean);
+  const correct = TIERS.find(t => score >= t.min);
   if (!correct?.roleId) return;
 
-  await Promise.all(allIds.map(id => member.roles.remove(id).catch(() => {})));
+  for (const id of allIds) await member.roles.remove(id).catch(() => {});
   await member.roles.add(correct.roleId).catch(() => {});
 }
 
-async function updateClassRole(member, cls) {
-  const allIds  = Object.values(CLASS_ROLES).filter(Boolean);
-  const correct = CLASS_ROLES[cls];
+async function updateClassRoles(member, classes) {
+  const allIds     = Object.values(CLASS_ROLES).filter(Boolean);
+  const correctIds = classes.map(c => CLASS_ROLES[c]).filter(Boolean);
 
-  await Promise.all(allIds.map(id => member.roles.remove(id).catch(() => {})));
-  if (correct) await member.roles.add(correct).catch(() => {});
+  // Remove all class roles first
+  for (const id of allIds) await member.roles.remove(id).catch(() => {});
+  // Add one per active class
+  for (const id of correctIds) await member.roles.add(id).catch(() => {});
 }
 
 async function updateNickname(member, charName, score) {
@@ -57,4 +78,4 @@ async function updateNickname(member, charName, score) {
   await member.setNickname(nick.slice(0, 32)).catch(() => {});
 }
 
-module.exports = { applyRoles, TIERS };
+module.exports = { applyRoles, applyRolesFromActive, TIERS };

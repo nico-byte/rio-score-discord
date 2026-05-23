@@ -30,7 +30,7 @@ async function execute(interaction) {
   if (result.error) return interaction.editReply(`❌ ${result.error}`);
 
   const { score, spec, cls, thumbnail, profileUrl } = result;
-
+ 
   // Save to DB and mark as active
   await db.upsertCharacter(interaction.user.id, name, realm, region);
   const chars = await db.getCharacters(interaction.user.id);
