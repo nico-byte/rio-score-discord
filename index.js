@@ -89,17 +89,13 @@ async function fetchRioScore(name, realm, region) {
 // ─── Assign the right tier role, remove old ones ───────────────────────────
 async function updateTierRole(member, score) {
   const allTierRoleIds = TIERS.map(t => t.roleId).filter(Boolean);
-
-  // Find the correct tier
   const correctTier = TIERS.find(t => score >= t.min);
   if (!correctTier?.roleId) return null;
 
-  // Remove all tier roles first, then add the correct one
-  for (const roleId of allTierRoleIds) {
-    if (member.roles.cache.has(roleId) && roleId !== correctTier.roleId) {
-      await member.roles.remove(roleId).catch(() => {});
-    }
-  }
+  // Remove ALL tier roles unconditionally, then add the correct one
+  await Promise.all(
+    allTierRoleIds.map(roleId => member.roles.remove(roleId).catch(() => {}))
+  );
   await member.roles.add(correctTier.roleId).catch(() => {});
 
   return correctTier;
