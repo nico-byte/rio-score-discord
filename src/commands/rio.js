@@ -20,7 +20,7 @@ const definition = new SlashCommandBuilder()
       ));
 
 async function execute(interaction) {
-  await interaction.deferReply();
+  await interaction.deferReply({ ephemeral: true });
 
   const name   = interaction.options.getString('name').trim().toLowerCase();
   const realm  = interaction.options.getString('realm').trim().replace(/\s+/g, '-').toLowerCase();
