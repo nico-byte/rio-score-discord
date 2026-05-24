@@ -219,6 +219,10 @@ async function handleConfirm(interaction) {
       permissionOverwrites: [
         { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
         {
+          id:    interaction.client.user.id,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages],
+        },
+        {
           id:    interaction.user.id,
           allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
         },
