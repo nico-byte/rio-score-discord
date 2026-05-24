@@ -233,6 +233,33 @@ async function handleConfirm(interaction) {
     return interaction.editReply({ content: '❌ Fehler beim Erstellen des Management-Channels. Prüfe Bot-Berechtigungen.', components: [] });
   }
 
+  // Create private voice channel with the same permissions
+  const vcName = `lfg-${dungeon.toLowerCase().replace(/'/g, '').replace(/[^a-z0-9]+/g, '-')}-${keyLevel}`
+    .replace(/-{2,}/g, '-').replace(/^-|-$/g, '').slice(0, 100);
+
+  let voiceChannel = null;
+  try {
+    voiceChannel = await guild.channels.create({
+      name:   vcName,
+      type:   ChannelType.GuildVoice,
+      parent: resolvedParent,
+      permissionOverwrites: [
+        { id: guild.id, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
+        {
+          id:    interaction.client.user.id,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.MoveMembers],
+        },
+        {
+          id:    interaction.user.id,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak],
+        },
+      ],
+    });
+    await db.setLfgVoiceChannel(lfgId, voiceChannel.id);
+  } catch (err) {
+    console.warn('Failed to create voice channel:', err);
+  }
+
   // Post info embed + close button in mgmt channel
   const infoEmbed = new EmbedBuilder()
     .setColor(0xf39c12)
@@ -246,7 +273,7 @@ async function handleConfirm(interaction) {
       { name: 'Mein Score',    value: `${char.rio_score ?? 0} IO`,                                         inline: true },
       { name: 'Gesucht',       value: roles.map(r => ROLE_CHANNELS[r].emoji + ' ' + ROLE_CHANNELS[r].label).join(', '), inline: false },
       { name: 'Anforderung',   value: scoreLabel,                                                           inline: false },
-      { name: 'Freie Plätze',  value: `${session.roles.length > 0 ? 4 : 4}/4`,                             inline: true },
+      ...(voiceChannel ? [{ name: 'Voice Channel', value: `${voiceChannel}`, inline: false }] : []),
     )
     .setFooter({ text: `LFG-ID: ${lfgId}` })
     .setTimestamp();

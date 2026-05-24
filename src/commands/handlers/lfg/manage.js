@@ -54,14 +54,17 @@ async function handleApprove(interaction) {
   let applicant;
   try { applicant = await guild.members.fetch(app.applicant_id); } catch { applicant = null; }
 
+  const voiceChannel = group.voice_channel_id ? guild.channels.cache.get(group.voice_channel_id) : null;
+
   const inviteEmbed = new EmbedBuilder()
     .setColor(0x2ecc71)
     .setTitle(`Einladung: ${group.dungeon} +${group.key_level}`)
     .setAuthor({ name: applicant?.displayName ?? app.applicant_id, iconURL: applicant?.user.displayAvatarURL() })
     .addFields(
-      { name: 'Dungeon',     value: group.dungeon,        inline: true },
-      { name: 'Key Level',   value: `+${group.key_level}`, inline: true },
-      { name: 'Charaktere',  value: charLines || '—',      inline: false },
+      { name: 'Dungeon',     value: group.dungeon,         inline: true },
+      { name: 'Key Level',   value: `+${group.key_level}`,  inline: true },
+      { name: 'Charaktere',  value: charLines || '—',       inline: false },
+      ...(voiceChannel ? [{ name: 'Voice Channel', value: `${voiceChannel}`, inline: false }] : []),
     )
     .setFooter({ text: 'Annehmen oder Ablehnen — Annehmen bricht alle anderen Bewerbungen ab' })
     .setTimestamp();
@@ -171,6 +174,12 @@ async function handleClose(interaction) {
         } catch { /* already gone */ }
       }
     }
+  }
+
+  // Delete voice channel immediately
+  if (group.voice_channel_id) {
+    const voiceChannel = guild.channels.cache.get(group.voice_channel_id);
+    if (voiceChannel) await voiceChannel.delete().catch(() => {});
   }
 
   // Delete mgmt channel after a short delay so the user sees the confirmation

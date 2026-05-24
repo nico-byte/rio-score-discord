@@ -25,21 +25,24 @@ async function init() {
   `);
   await db.execute(`
     CREATE TABLE IF NOT EXISTS lfg_groups (
-      id               INTEGER PRIMARY KEY AUTOINCREMENT,
-      creator_id       TEXT    NOT NULL,
-      guild_id         TEXT    NOT NULL,
-      dungeon          TEXT    NOT NULL,
-      key_level        TEXT    NOT NULL,
-      char_id          INTEGER NOT NULL,
-      roles_wanted     TEXT    NOT NULL,
-      score_req        TEXT    NOT NULL,
-      mgmt_channel_id  TEXT,
-      mgmt_info_msg_id TEXT,
-      spots_total      INTEGER NOT NULL DEFAULT 5,
-      status           TEXT    NOT NULL DEFAULT 'open',
-      created_at       INTEGER NOT NULL DEFAULT 0
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      creator_id        TEXT    NOT NULL,
+      guild_id          TEXT    NOT NULL,
+      dungeon           TEXT    NOT NULL,
+      key_level         TEXT    NOT NULL,
+      char_id           INTEGER NOT NULL,
+      roles_wanted      TEXT    NOT NULL,
+      score_req         TEXT    NOT NULL,
+      mgmt_channel_id   TEXT,
+      mgmt_info_msg_id  TEXT,
+      voice_channel_id  TEXT,
+      spots_total       INTEGER NOT NULL DEFAULT 5,
+      status            TEXT    NOT NULL DEFAULT 'open',
+      created_at        INTEGER NOT NULL DEFAULT 0
     )
   `);
+  // Migration: add voice_channel_id to existing tables
+  await db.execute(`ALTER TABLE lfg_groups ADD COLUMN voice_channel_id TEXT`).catch(() => {});
   await db.execute(`
     CREATE TABLE IF NOT EXISTS lfg_applications (
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -158,6 +161,13 @@ async function setLfgMgmtChannel(lfgId, channelId, msgId) {
   });
 }
 
+async function setLfgVoiceChannel(lfgId, channelId) {
+  await db.execute({
+    sql:  `UPDATE lfg_groups SET voice_channel_id=? WHERE id=?`,
+    args: [channelId, lfgId],
+  });
+}
+
 async function getLfgGroup(lfgId) {
   const res = await db.execute({ sql: `SELECT * FROM lfg_groups WHERE id=?`, args: [lfgId] });
   const row = res.rows[0];
@@ -261,7 +271,7 @@ module.exports = {
   upsertCharacter, updateScore, setActive, setInactive, setOnlyActive, removeCharacter,
   getCharacters, getActiveCharacters, getActiveCharacter, getCharacterById, getStaleCharacters,
   // LFG
-  createLfgGroup, setLfgMgmtChannel, getLfgGroup, closeLfgGroup, getLfgSpotsLeft,
+  createLfgGroup, setLfgMgmtChannel, setLfgVoiceChannel, getLfgGroup, closeLfgGroup, getLfgSpotsLeft,
   addLfgAnnouncement, getLfgAnnouncements, deleteLfgAnnouncements,
   createApplication, setApplicationMgmtMsg, setApplicationInviteMsg,
   getApplication, setApplicationStatus, cancelOtherApplications,

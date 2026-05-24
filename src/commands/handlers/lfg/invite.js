@@ -44,6 +44,18 @@ async function handleAccept(interaction) {
     }
   }
 
+  // Grant access to the voice channel
+  if (group?.voice_channel_id) {
+    const voiceChannel = guild.channels.cache.get(group.voice_channel_id);
+    if (voiceChannel) {
+      await voiceChannel.permissionOverwrites.edit(interaction.user.id, {
+        ViewChannel: true,
+        Connect:     true,
+        Speak:       true,
+      }).catch(() => {});
+    }
+  }
+
   // Edit invite message to remove buttons
   await interaction.message.edit({
     content:    `✅ <@${interaction.user.id}> hat die Einladung angenommen!`,
