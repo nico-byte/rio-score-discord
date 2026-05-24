@@ -6,18 +6,18 @@ const { TIERS }         = require('../../roles');
 async function execute(interaction) {
   await interaction.deferReply({ ephemeral: true });
 
-  const name   = interaction.options.getString('name').trim().toLowerCase();
-  const realm  = interaction.options.getString('realm').trim().replace(/\s+/g, '-').toLowerCase();
-  const region = interaction.options.getString('region') ?? 'eu';
+  const inputName = interaction.options.getString('name').trim().toLowerCase();
+  const realm     = interaction.options.getString('realm').trim().replace(/\s+/g, '-').toLowerCase();
+  const region    = interaction.options.getString('region') ?? 'eu';
 
-  const result = await fetchRioScore(name, realm, region);
+  const result = await fetchRioScore(inputName, realm, region);
   if (result.error) return interaction.editReply(`❌ ${result.error}`);
 
-  const { score, spec, cls, thumbnail, profileUrl } = result;
+  const { name, score, spec, cls, thumbnail, profileUrl } = result;
 
   await db.upsertCharacter(interaction.user.id, name, realm, region);
   const chars = await db.getCharacters(interaction.user.id);
-  const char  = chars.find(c => c.char_name === name && c.realm === realm && c.region === region);
+  const char  = chars.find(c => c.char_name.toLowerCase() === name.toLowerCase() && c.realm === realm && c.region === region);
   await db.updateScore(char.id, score, spec, cls);
 
   const tier = TIERS.find(t => score >= t.min) ?? TIERS[TIERS.length - 1];

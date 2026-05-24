@@ -9,6 +9,22 @@ const apply  = require('./src/commands/handlers/lfg/apply');
 const manage = require('./src/commands/handlers/lfg/manage');
 const invite = require('./src/commands/handlers/lfg/invite');
 
+// ─── Logging ────────────────────────────────────────────────────────────────
+function ts() {
+  return new Date().toISOString();
+}
+
+async function timed(type, label, user, fn) {
+  const start = Date.now();
+  try {
+    await fn();
+    console.log(`[${ts()}] [${type}] ${label} — ${user} — ${Date.now() - start}ms`);
+  } catch (err) {
+    console.error(`[${ts()}] [${type}] ${label} — ${user} — ${Date.now() - start}ms — ERROR:`, err);
+    throw err;
+  }
+}
+
 // ─── Command registry ───────────────────────────────────────────────────────
 const COMMANDS = {
   rio:  rioCommand,
@@ -46,26 +62,25 @@ client.once('clientReady', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
+  const who = `${interaction.user.tag} (${interaction.user.id})`;
+
   // ── Slash commands ──────────────────────────────────────────────────────
   if (interaction.isChatInputCommand()) {
     const command = COMMANDS[interaction.commandName];
     if (!command) return;
-    try {
-      await command.execute(interaction);
-    } catch (err) {
-      console.error(`Command error (/${interaction.commandName}):`, err);
-    }
+    const sub   = interaction.options.getSubcommand(false);
+    const label = sub ? `/${interaction.commandName} ${sub}` : `/${interaction.commandName}`;
+    await timed('CMD', label, who, () => command.execute(interaction));
     return;
   }
 
   // ── Select menus ────────────────────────────────────────────────────────
   if (interaction.isStringSelectMenu()) {
-    if (interaction.customId.startsWith('lfgcreate_')) {
-      try { await lfgCommand.handleSelect(interaction); }
-      catch (err) { console.error('Select error (lfgcreate):', err); }
-    } else if (interaction.customId === 'lfgapply_chars') {
-      try { await apply.handleApplySelect(interaction); }
-      catch (err) { console.error('Select error (lfgapply_chars):', err); }
+    const id = interaction.customId;
+    if (id.startsWith('lfgcreate_')) {
+      await timed('SEL', id, who, () => lfgCommand.handleSelect(interaction));
+    } else if (id === 'lfgapply_chars') {
+      await timed('SEL', id, who, () => apply.handleApplySelect(interaction));
     }
     return;
   }
@@ -74,52 +89,32 @@ client.on('interactionCreate', async interaction => {
   if (interaction.isButton()) {
     const id = interaction.customId;
 
-    // /rio show pagination
     if (id.startsWith('rioshow_')) {
-      try { await rioCommand.handleButton(interaction); }
-      catch (err) { console.error('Button error (rioshow):', err); }
-
-    // LFG create flow
+      await timed('BTN', id, who, () => rioCommand.handleButton(interaction));
     } else if (id === 'lfgcreate_next') {
-      try { await lfgCommand.showStep2(interaction); }
-      catch (err) { console.error('Button error (lfgcreate_next):', err); }
+      await timed('BTN', id, who, () => lfgCommand.showStep2(interaction));
     } else if (id === 'lfgcreate_confirm') {
-      try { await lfgCommand.handleConfirm(interaction); }
-      catch (err) { console.error('Button error (lfgcreate_confirm):', err); }
+      await timed('BTN', id, who, () => lfgCommand.handleConfirm(interaction));
     } else if (id === 'lfgcreate_cancel') {
-      try { await lfgCommand.handleCancel(interaction); }
-      catch (err) { console.error('Button error (lfgcreate_cancel):', err); }
-
-    // LFG apply flow
+      await timed('BTN', id, who, () => lfgCommand.handleCancel(interaction));
     } else if (id === 'lfgapply_confirm') {
-      try { await apply.handleApplyConfirm(interaction); }
-      catch (err) { console.error('Button error (lfgapply_confirm):', err); }
+      await timed('BTN', id, who, () => apply.handleApplyConfirm(interaction));
     } else if (id === 'lfgapply_cancel') {
-      try { await apply.handleApplyCancel(interaction); }
-      catch (err) { console.error('Button error (lfgapply_cancel):', err); }
+      await timed('BTN', id, who, () => apply.handleApplyCancel(interaction));
     } else if (id.startsWith('lfgapply_')) {
-      // lfgapply_{lfgId} — the Apply button on announcements
-      try { await apply.handleApplyButton(interaction); }
-      catch (err) { console.error('Button error (lfgapply):', err); }
-
-    // LFG manage (keyholder actions)
+      await timed('BTN', id, who, () => apply.handleApplyButton(interaction));
     } else if (id.startsWith('lfgapprove_')) {
-      try { await manage.handleApprove(interaction); }
-      catch (err) { console.error('Button error (lfgapprove):', err); }
+      await timed('BTN', id, who, () => manage.handleApprove(interaction));
     } else if (id.startsWith('lfgreject_')) {
-      try { await manage.handleReject(interaction); }
-      catch (err) { console.error('Button error (lfgreject):', err); }
+      await timed('BTN', id, who, () => manage.handleReject(interaction));
+    } else if (id.startsWith('lfgstart_')) {
+      await timed('BTN', id, who, () => manage.handleStart(interaction));
     } else if (id.startsWith('lfgclose_')) {
-      try { await manage.handleClose(interaction); }
-      catch (err) { console.error('Button error (lfgclose):', err); }
-
-    // LFG invite (applicant response)
+      await timed('BTN', id, who, () => manage.handleClose(interaction));
     } else if (id.startsWith('lfgaccept_')) {
-      try { await invite.handleAccept(interaction); }
-      catch (err) { console.error('Button error (lfgaccept):', err); }
+      await timed('BTN', id, who, () => invite.handleAccept(interaction));
     } else if (id.startsWith('lfgdecline_')) {
-      try { await invite.handleDecline(interaction); }
-      catch (err) { console.error('Button error (lfgdecline):', err); }
+      await timed('BTN', id, who, () => invite.handleDecline(interaction));
     }
   }
 });

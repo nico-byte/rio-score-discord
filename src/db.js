@@ -67,12 +67,23 @@ async function init() {
 }
 
 async function upsertCharacter(discordId, charName, realm, region) {
-  await db.execute({
-    sql: `INSERT INTO characters (discord_id, char_name, realm, region)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(discord_id, char_name, realm, region) DO NOTHING`,
-    args: [discordId, charName.toLowerCase(), realm.toLowerCase(), region.toLowerCase()],
+  const realmLow  = realm.toLowerCase();
+  const regionLow = region.toLowerCase();
+  const existing  = await db.execute({
+    sql:  `SELECT id FROM characters WHERE discord_id=? AND LOWER(char_name)=? AND realm=? AND region=?`,
+    args: [discordId, charName.toLowerCase(), realmLow, regionLow],
   });
+  if (existing.rows.length > 0) {
+    await db.execute({
+      sql:  `UPDATE characters SET char_name=? WHERE id=?`,
+      args: [charName, existing.rows[0].id],
+    });
+  } else {
+    await db.execute({
+      sql:  `INSERT INTO characters (discord_id, char_name, realm, region) VALUES (?, ?, ?, ?)`,
+      args: [discordId, charName, realmLow, regionLow],
+    });
+  }
 }
 
 async function updateScore(id, score, spec, cls) {

@@ -284,6 +284,10 @@ async function handleConfirm(interaction) {
     components: [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
+          .setCustomId(`lfgstart_${lfgId}`)
+          .setLabel('Key starten')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
           .setCustomId(`lfgclose_${lfgId}`)
           .setLabel('LFG Beenden')
           .setStyle(ButtonStyle.Danger),

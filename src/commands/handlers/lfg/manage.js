@@ -131,6 +131,59 @@ async function handleReject(interaction) {
   await editMgmtCard(interaction, app, '❌ Abgelehnt');
 }
 
+// ── Start key (close LFG search, keep voice channel) ─────────────────────────
+async function handleStart(interaction) {
+  const lfgId = parseInt(interaction.customId.split('_')[1], 10);
+  const group  = await db.getLfgGroup(lfgId);
+
+  if (!group) {
+    return interaction.reply({ content: '❌ LFG nicht gefunden.', ephemeral: true });
+  }
+  if (group.creator_id !== interaction.user.id) {
+    return interaction.reply({ content: '❌ Nur der Keyholder kann den Key starten.', ephemeral: true });
+  }
+
+  await interaction.deferUpdate();
+  await db.closeLfgGroup(lfgId);
+
+  const guild = interaction.guild;
+
+  // Delete announcement messages in role channels
+  const announcements = await db.getLfgAnnouncements(lfgId);
+  for (const ann of announcements) {
+    try {
+      const ch  = guild.channels.cache.get(ann.channel_id);
+      const msg = ch ? await ch.messages.fetch(ann.message_id) : null;
+      if (msg) await msg.delete();
+    } catch { /* already gone */ }
+  }
+  await db.deleteLfgAnnouncements(lfgId);
+
+  // Cancel remaining pending/approved applications and update their invite messages
+  const apps = await db.getLfgApplications(lfgId);
+  const inviteChannel = guild.channels.cache.get(process.env.CHANNEL_PENDING_INVITES);
+
+  for (const app of apps) {
+    if (['pending', 'approved'].includes(app.status)) {
+      await db.setApplicationStatus(app.id, 'cancelled');
+
+      if (app.invite_message_id && inviteChannel) {
+        try {
+          const inviteMsg = await inviteChannel.messages.fetch(app.invite_message_id);
+          await inviteMsg.edit({ content: `<@${app.applicant_id}> Der Key wurde gestartet — die LFG ist geschlossen.`, components: [] });
+        } catch { /* already gone */ }
+      }
+    }
+  }
+
+  // Delete mgmt channel, leave voice channel open
+  const mgmtChannel = guild.channels.cache.get(group.mgmt_channel_id);
+  if (mgmtChannel) {
+    await mgmtChannel.send('🎉 Key gestartet! Viel Erfolg! Dieser Channel wird in 10 Sekunden gelöscht.').catch(() => {});
+    setTimeout(() => mgmtChannel.delete().catch(() => {}), 10_000);
+  }
+}
+
 // ── Close LFG ─────────────────────────────────────────────────────────────────
 async function handleClose(interaction) {
   const lfgId = parseInt(interaction.customId.split('_')[1], 10);
@@ -209,4 +262,4 @@ async function editMgmtCard(interaction, app, statusText) {
   } catch { /* not critical */ }
 }
 
-module.exports = { handleApprove, handleReject, handleClose };
+module.exports = { handleApprove, handleReject, handleStart, handleClose };
