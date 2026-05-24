@@ -23,6 +23,43 @@ async function init() {
       UNIQUE(discord_id, char_name, realm, region)
     )
   `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS lfg_groups (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      creator_id       TEXT    NOT NULL,
+      guild_id         TEXT    NOT NULL,
+      dungeon          TEXT    NOT NULL,
+      key_level        TEXT    NOT NULL,
+      char_id          INTEGER NOT NULL,
+      roles_wanted     TEXT    NOT NULL,
+      score_req        TEXT    NOT NULL,
+      mgmt_channel_id  TEXT,
+      mgmt_info_msg_id TEXT,
+      spots_total      INTEGER NOT NULL DEFAULT 5,
+      status           TEXT    NOT NULL DEFAULT 'open',
+      created_at       INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS lfg_applications (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      lfg_id           INTEGER NOT NULL,
+      applicant_id     TEXT    NOT NULL,
+      char_ids         TEXT    NOT NULL,
+      status           TEXT    NOT NULL DEFAULT 'pending',
+      mgmt_message_id  TEXT,
+      invite_message_id TEXT,
+      created_at       INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS lfg_announcements (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      lfg_id     INTEGER NOT NULL,
+      channel_id TEXT    NOT NULL,
+      message_id TEXT    NOT NULL
+    )
+  `);
   console.log(`✅ Database ready at ${path.resolve(DB_PATH)}`);
 }
 
@@ -103,8 +140,130 @@ async function getStaleCharacters() {
   return res.rows;
 }
 
+// ── LFG groups ────────────────────────────────────────────────────────────────
+
+async function createLfgGroup({ creatorId, guildId, dungeon, keyLevel, charId, rolesWanted, scoreReq }) {
+  const res = await db.execute({
+    sql:  `INSERT INTO lfg_groups (creator_id, guild_id, dungeon, key_level, char_id, roles_wanted, score_req, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [creatorId, guildId, dungeon, keyLevel, charId, JSON.stringify(rolesWanted), scoreReq, Date.now()],
+  });
+  return Number(res.lastInsertRowid);
+}
+
+async function setLfgMgmtChannel(lfgId, channelId, msgId) {
+  await db.execute({
+    sql:  `UPDATE lfg_groups SET mgmt_channel_id=?, mgmt_info_msg_id=? WHERE id=?`,
+    args: [channelId, msgId, lfgId],
+  });
+}
+
+async function getLfgGroup(lfgId) {
+  const res = await db.execute({ sql: `SELECT * FROM lfg_groups WHERE id=?`, args: [lfgId] });
+  const row = res.rows[0];
+  if (!row) return null;
+  return { ...row, roles_wanted: JSON.parse(row.roles_wanted) };
+}
+
+async function closeLfgGroup(lfgId) {
+  await db.execute({ sql: `UPDATE lfg_groups SET status='closed' WHERE id=?`, args: [lfgId] });
+}
+
+// Returns how many spots are still free (spots_total minus accepted applications)
+async function getLfgSpotsLeft(lfgId) {
+  const group = await getLfgGroup(lfgId);
+  if (!group) return 0;
+  const res = await db.execute({
+    sql:  `SELECT COUNT(*) as cnt FROM lfg_applications WHERE lfg_id=? AND status='accepted'`,
+    args: [lfgId],
+  });
+  // keyholder counts as 1
+  const accepted = Number(res.rows[0].cnt);
+  return group.spots_total - 1 - accepted;
+}
+
+// ── LFG announcements ─────────────────────────────────────────────────────────
+
+async function addLfgAnnouncement(lfgId, channelId, messageId) {
+  await db.execute({
+    sql:  `INSERT INTO lfg_announcements (lfg_id, channel_id, message_id) VALUES (?, ?, ?)`,
+    args: [lfgId, channelId, messageId],
+  });
+}
+
+async function getLfgAnnouncements(lfgId) {
+  const res = await db.execute({ sql: `SELECT * FROM lfg_announcements WHERE lfg_id=?`, args: [lfgId] });
+  return res.rows;
+}
+
+async function deleteLfgAnnouncements(lfgId) {
+  await db.execute({ sql: `DELETE FROM lfg_announcements WHERE lfg_id=?`, args: [lfgId] });
+}
+
+// ── LFG applications ──────────────────────────────────────────────────────────
+
+async function createApplication({ lfgId, applicantId, charIds }) {
+  const res = await db.execute({
+    sql:  `INSERT INTO lfg_applications (lfg_id, applicant_id, char_ids, created_at) VALUES (?, ?, ?, ?)`,
+    args: [lfgId, applicantId, JSON.stringify(charIds), Date.now()],
+  });
+  return Number(res.lastInsertRowid);
+}
+
+async function setApplicationMgmtMsg(appId, msgId) {
+  await db.execute({ sql: `UPDATE lfg_applications SET mgmt_message_id=? WHERE id=?`, args: [msgId, appId] });
+}
+
+async function setApplicationInviteMsg(appId, msgId) {
+  await db.execute({ sql: `UPDATE lfg_applications SET invite_message_id=? WHERE id=?`, args: [msgId, appId] });
+}
+
+async function getApplication(appId) {
+  const res = await db.execute({ sql: `SELECT * FROM lfg_applications WHERE id=?`, args: [appId] });
+  const row = res.rows[0];
+  if (!row) return null;
+  return { ...row, char_ids: JSON.parse(row.char_ids) };
+}
+
+async function setApplicationStatus(appId, status) {
+  await db.execute({ sql: `UPDATE lfg_applications SET status=? WHERE id=?`, args: [status, appId] });
+}
+
+// Cancel all pending/approved applications for a user (except the given appId)
+async function cancelOtherApplications(applicantId, exceptAppId) {
+  await db.execute({
+    sql:  `UPDATE lfg_applications SET status='cancelled'
+           WHERE applicant_id=? AND id != ? AND status IN ('pending','approved')`,
+    args: [applicantId, exceptAppId],
+  });
+}
+
+// Returns all non-cancelled applications for an LFG group
+async function getLfgApplications(lfgId) {
+  const res = await db.execute({
+    sql:  `SELECT * FROM lfg_applications WHERE lfg_id=? AND status != 'cancelled'`,
+    args: [lfgId],
+  });
+  return res.rows.map(r => ({ ...r, char_ids: JSON.parse(r.char_ids) }));
+}
+
+// Check if a user already has a pending/approved application for a group
+async function getExistingApplication(lfgId, applicantId) {
+  const res = await db.execute({
+    sql:  `SELECT * FROM lfg_applications WHERE lfg_id=? AND applicant_id=? AND status IN ('pending','approved')`,
+    args: [lfgId, applicantId],
+  });
+  return res.rows[0] ?? null;
+}
+
 module.exports = {
   init,
   upsertCharacter, updateScore, setActive, setInactive, setOnlyActive, removeCharacter,
   getCharacters, getActiveCharacters, getActiveCharacter, getCharacterById, getStaleCharacters,
+  // LFG
+  createLfgGroup, setLfgMgmtChannel, getLfgGroup, closeLfgGroup, getLfgSpotsLeft,
+  addLfgAnnouncement, getLfgAnnouncements, deleteLfgAnnouncements,
+  createApplication, setApplicationMgmtMsg, setApplicationInviteMsg,
+  getApplication, setApplicationStatus, cancelOtherApplications,
+  getLfgApplications, getExistingApplication,
 };

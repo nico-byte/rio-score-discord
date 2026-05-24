@@ -5,11 +5,11 @@ const {
   ButtonStyle,
   EmbedBuilder,
   ChannelType,
+  PermissionFlagsBits,
 } = require('discord.js');
 const db = require('../../../db');
 
 // ── Static data ───────────────────────────────────────────────────────────────
-// Update DUNGEONS each season
 const DUNGEONS = [
   'Ara-Kara, City of Echoes',
   'City of Threads',
@@ -29,12 +29,11 @@ const DUNGEONS = [
   'Theater of Pain',
 ];
 
-// +2 through +25 (24 options, within Discord's 25-option limit)
 const KEY_LEVELS = Array.from({ length: 24 }, (_, i) => String(i + 2));
 
 const SCORE_OPTIONS = [
-  { label: 'Keine Anforderung',    value: 'none',     emoji: '⚪' },
-  { label: 'Pusher 3k+',          value: 'pusher',   emoji: '🟠' },
+  { label: 'Keine Anforderung',     value: 'none',     emoji: '⚪' },
+  { label: 'Pusher 3k+',           value: 'pusher',   emoji: '🟠' },
   { label: 'Extreme Pusher 3.5k+', value: 'extreme',  emoji: '🟤' },
   { label: 'Hardcore Pusher 4k+',  value: 'hardcore', emoji: '🟣' },
 ];
@@ -45,15 +44,15 @@ const SCORE_LABELS = {
   hardcore: '🟣 Hardcore Pusher 4k+',
 };
 const ROLE_CHANNELS = {
-  tank:   { envKey: 'CHANNEL_TANK_LFG',   color: 0x3498db, label: 'Tank' },
-  healer: { envKey: 'CHANNEL_HEALER_LFG', color: 0x2ecc71, label: 'Healer' },
-  dps:    { envKey: 'CHANNEL_DPS_LFG',    color: 0xe74c3c, label: 'DPS' },
+  tank:   { envKey: 'CHANNEL_TANK_LFG',   color: 0x3498db, label: 'Tank',   emoji: '🛡️' },
+  healer: { envKey: 'CHANNEL_HEALER_LFG', color: 0x2ecc71, label: 'Healer', emoji: '💚' },
+  dps:    { envKey: 'CHANNEL_DPS_LFG',    color: 0xe74c3c, label: 'DPS',    emoji: '⚔️' },
 };
 
-// ── Session state: userId → { dungeon, keyLevel, characterId, roles, scoreReq, chars } ──
+// ── Session state ─────────────────────────────────────────────────────────────
 const sessions = new Map();
 
-// ── Step 1: /lfg create → show dungeon + key level selects ───────────────────
+// ── Step 1: /lfg create ───────────────────────────────────────────────────────
 async function showStep1(interaction) {
   const chars = await db.getCharacters(interaction.user.id);
   if (!chars.length) {
@@ -97,7 +96,7 @@ async function showStep1(interaction) {
   });
 }
 
-// ── Step 2: "Weiter" button → show char + role + score selects ────────────────
+// ── Step 2: "Weiter" button ───────────────────────────────────────────────────
 async function showStep2(interaction) {
   const session = sessions.get(interaction.user.id);
   if (!session) {
@@ -167,7 +166,7 @@ async function handleSelect(interaction) {
   await interaction.deferUpdate();
 }
 
-// ── Confirm button ────────────────────────────────────────────────────────────
+// ── Confirm: create management channel + post announcements ───────────────────
 async function handleConfirm(interaction) {
   const session = sessions.get(interaction.user.id);
   if (!session) {
@@ -188,24 +187,49 @@ async function handleConfirm(interaction) {
   const guild      = interaction.guild;
 
   // Validate parent category
-  const parentId      = process.env.LFG_CATEGORY_ID ?? null;
-  const parentChannel = parentId ? guild.channels.cache.get(parentId) : null;
+  const parentId       = process.env.LFG_CATEGORY_ID ?? null;
+  const parentChannel  = parentId ? guild.channels.cache.get(parentId) : null;
   const resolvedParent = parentChannel?.type === ChannelType.GuildCategory ? parentId : null;
   if (parentId && !resolvedParent) {
     console.warn(`LFG_CATEGORY_ID (${parentId}) is not a category — creating channel without parent`);
   }
 
-  const channelName = `lfg-${dungeon.toLowerCase().replace(/'/g, '').replace(/[^a-z0-9]+/g, '-')}-${keyLevel}`
-    .replace(/-{2,}/g, '-').replace(/^-|-$/g, '').slice(0, 100);
-
-  const lfgChannel = await guild.channels.create({
-    name:   channelName,
-    type:   ChannelType.GuildText,
-    parent: resolvedParent,
-    topic:  `LFG: ${dungeon} +${keyLevel} | ${char.char_name} sucht: ${roles.join(', ')} | ${scoreLabel}`,
+  // Create DB record first so we have the ID
+  const lfgId = await db.createLfgGroup({
+    creatorId:   interaction.user.id,
+    guildId:     guild.id,
+    dungeon,
+    keyLevel,
+    charId:      parseInt(characterId, 10),
+    rolesWanted: roles,
+    scoreReq,
   });
 
-  // Pin group info in the new channel
+  // Create private management channel (keyholder only)
+  const channelName = `mgmt-lfg-${dungeon.toLowerCase().replace(/'/g, '').replace(/[^a-z0-9]+/g, '-')}-${keyLevel}`
+    .replace(/-{2,}/g, '-').replace(/^-|-$/g, '').slice(0, 100);
+
+  let mgmtChannel;
+  try {
+    mgmtChannel = await guild.channels.create({
+      name:   channelName,
+      type:   ChannelType.GuildText,
+      parent: resolvedParent,
+      topic:  `LFG-Management: ${dungeon} +${keyLevel} | ${char.char_name}`,
+      permissionOverwrites: [
+        { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+        {
+          id:    interaction.user.id,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+        },
+      ],
+    });
+  } catch (err) {
+    console.error('Failed to create mgmt channel:', err);
+    return interaction.editReply({ content: '❌ Fehler beim Erstellen des Management-Channels. Prüfe Bot-Berechtigungen.', components: [] });
+  }
+
+  // Post info embed + close button in mgmt channel
   const infoEmbed = new EmbedBuilder()
     .setColor(0xf39c12)
     .setTitle(`LFG: ${dungeon} +${keyLevel}`)
@@ -216,40 +240,75 @@ async function handleConfirm(interaction) {
       { name: 'Charakter',     value: `${char.char_name} — ${char.realm} (${char.region?.toUpperCase()})`, inline: false },
       { name: 'Klasse / Spec', value: `${char.class ?? '?'} / ${char.spec ?? '?'}`,                        inline: true },
       { name: 'Mein Score',    value: `${char.rio_score ?? 0} IO`,                                         inline: true },
-      { name: 'Gesucht',       value: roles.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(', '),  inline: false },
+      { name: 'Gesucht',       value: roles.map(r => ROLE_CHANNELS[r].emoji + ' ' + ROLE_CHANNELS[r].label).join(', '), inline: false },
       { name: 'Anforderung',   value: scoreLabel,                                                           inline: false },
+      { name: 'Freie Plätze',  value: `${session.roles.length > 0 ? 4 : 4}/4`,                             inline: true },
     )
+    .setFooter({ text: `LFG-ID: ${lfgId}` })
     .setTimestamp();
 
-  const pinMsg = await lfgChannel.send({ embeds: [infoEmbed] });
-  await pinMsg.pin().catch(() => {});
+  const infoMsg = await mgmtChannel.send({
+    content: `${interaction.user} Hier siehst du eingehende Bewerbungen. Klicke **Beenden** um die LFG zu schließen.`,
+    embeds:  [infoEmbed],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`lfgclose_${lfgId}`)
+          .setLabel('LFG Beenden')
+          .setStyle(ButtonStyle.Danger),
+      ),
+    ],
+  });
 
-  // Announce in each requested role channel
+  await db.setLfgMgmtChannel(lfgId, mgmtChannel.id, infoMsg.id);
+
+  // Post announcement with Apply button in each requested role channel
   for (const role of roles) {
     const mapping = ROLE_CHANNELS[role];
     if (!mapping) continue;
     const targetChannel = guild.channels.cache.get(process.env[mapping.envKey]);
-    if (!targetChannel) continue;
+    if (!targetChannel) {
+      console.warn(`Channel for ${mapping.envKey} not found`);
+      continue;
+    }
 
     const announceEmbed = new EmbedBuilder()
       .setColor(mapping.color)
-      .setTitle(`LFG: ${mapping.label} gesucht!`)
+      .setTitle(`${mapping.emoji} ${mapping.label} gesucht — ${dungeon} +${keyLevel}`)
       .setAuthor({ name: interaction.user.displayName, iconURL: interaction.user.displayAvatarURL() })
       .addFields(
-        { name: 'Dungeon',        value: dungeon,        inline: true },
-        { name: 'Key Level',      value: `+${keyLevel}`, inline: true },
-        { name: 'Anforderung',    value: scoreLabel,      inline: false },
-        { name: 'Details & Join', value: `[👉 Zum LFG-Channel](${lfgChannel.url})`, inline: false },
+        { name: 'Dungeon',      value: dungeon,        inline: true },
+        { name: 'Key Level',    value: `+${keyLevel}`, inline: true },
+        { name: 'Anforderung',  value: scoreLabel,     inline: false },
+        { name: 'Keyholder',    value: `${char.char_name} — ${char.rio_score ?? 0} IO (${char.class ?? '?'} / ${char.spec ?? '?'})`, inline: false },
       )
       .setFooter({ text: 'Wird automatisch nach 1 Stunde gelöscht' })
       .setTimestamp();
 
-    const announced = await targetChannel.send({ embeds: [announceEmbed] });
+    let announced;
+    try {
+      announced = await targetChannel.send({
+        embeds:     [announceEmbed],
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`lfgapply_${lfgId}`)
+              .setLabel('Bewerben')
+              .setStyle(ButtonStyle.Primary),
+          ),
+        ],
+      });
+    } catch (err) {
+      console.error(`Failed to post to ${mapping.envKey}:`, err);
+      continue;
+    }
+
+    await db.addLfgAnnouncement(lfgId, targetChannel.id, announced.id);
     setTimeout(() => announced.delete().catch(() => {}), 60 * 60 * 1000);
   }
 
   await interaction.editReply({
-    content: `✅ LFG-Channel erstellt: ${lfgChannel}`,
+    content: `✅ LFG erstellt! Dein Management-Channel: ${mgmtChannel}`,
     components: [],
   });
 }
