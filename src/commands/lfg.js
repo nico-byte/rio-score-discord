@@ -14,15 +14,15 @@ const definition = new SlashCommandBuilder()
 
 async function execute(interaction) {
   const sub = interaction.options.getSubcommand();
-  if (sub === 'create') return create.openModal(interaction);
+  if (sub === 'create') return create.showStep1(interaction);
   if (sub === 'apply')  return apply.execute(interaction);
 }
 
 module.exports = {
   definition,
   execute,
-  handleModal:   create.handleModal,
   handleSelect:  create.handleSelect,
+  showStep2:     create.showStep2,
   handleConfirm: create.handleConfirm,
   handleCancel:  create.handleCancel,
 };

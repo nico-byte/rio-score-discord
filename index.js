@@ -55,18 +55,6 @@ client.on('interactionCreate', async interaction => {
     return;
   }
 
-  // ── Modal submits ───────────────────────────────────────────────────────
-  if (interaction.isModalSubmit()) {
-    if (interaction.customId === 'lfgcreate_modal') {
-      try {
-        await lfgCommand.handleModal(interaction);
-      } catch (err) {
-        console.error('Modal error (lfgcreate):', err);
-      }
-    }
-    return;
-  }
-
   // ── Select menus ────────────────────────────────────────────────────────
   if (interaction.isStringSelectMenu()) {
     if (interaction.customId.startsWith('lfgcreate_')) {
@@ -86,6 +74,12 @@ client.on('interactionCreate', async interaction => {
         await rioCommand.handleButton(interaction);
       } catch (err) {
         console.error('Button error (rioshow):', err);
+      }
+    } else if (interaction.customId === 'lfgcreate_next') {
+      try {
+        await lfgCommand.showStep2(interaction);
+      } catch (err) {
+        console.error('Button error (lfgcreate_next):', err);
       }
     } else if (interaction.customId === 'lfgcreate_confirm') {
       try {
