@@ -182,9 +182,9 @@ async function handleConfirm(interaction) {
   sessions.delete(interaction.user.id);
 
   const { dungeon, keyLevel, characterId, roles, scoreReq } = session;
-  const char       = await db.getCharacterById(parseInt(characterId, 10));
   const scoreLabel = SCORE_LABELS[scoreReq];
   const guild      = interaction.guild;
+  const botId      = interaction.client.user.id;
 
   // Validate parent category
   const parentId       = process.env.LFG_CATEGORY_ID ?? null;
@@ -194,73 +194,61 @@ async function handleConfirm(interaction) {
     console.warn(`LFG_CATEGORY_ID (${parentId}) is not a category — creating channel without parent`);
   }
 
-  // Create DB record first so we have the ID
-  const lfgId = await db.createLfgGroup({
-    creatorId:   interaction.user.id,
-    guildId:     guild.id,
-    dungeon,
-    keyLevel,
-    charId:      parseInt(characterId, 10),
-    rolesWanted: roles,
-    scoreReq,
-  });
-
-  // Create private management channel (keyholder only)
+  // Fetch char + create DB record in parallel
   const channelName = `mgmt-lfg-${dungeon.toLowerCase().replace(/'/g, '').replace(/[^a-z0-9]+/g, '-')}-${keyLevel}`
     .replace(/-{2,}/g, '-').replace(/^-|-$/g, '').slice(0, 100);
+  const vcName = `lfg-${dungeon.toLowerCase().replace(/'/g, '').replace(/[^a-z0-9]+/g, '-')}-${keyLevel}`
+    .replace(/-{2,}/g, '-').replace(/^-|-$/g, '').slice(0, 100);
 
-  let mgmtChannel;
-  try {
-    mgmtChannel = await guild.channels.create({
+  const [char, lfgId] = await Promise.all([
+    db.getCharacterById(parseInt(characterId, 10)),
+    db.createLfgGroup({
+      creatorId:   interaction.user.id,
+      guildId:     guild.id,
+      dungeon,
+      keyLevel,
+      charId:      parseInt(characterId, 10),
+      rolesWanted: roles,
+      scoreReq,
+    }),
+  ]);
+
+  // Create both channels in parallel
+  const [mgmtResult, voiceResult] = await Promise.allSettled([
+    guild.channels.create({
       name:   channelName,
       type:   ChannelType.GuildText,
       parent: resolvedParent,
       topic:  `LFG-Management: ${dungeon} +${keyLevel} | ${char.char_name}`,
       permissionOverwrites: [
         { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-        {
-          id:    interaction.client.user.id,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages],
-        },
-        {
-          id:    interaction.user.id,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-        },
+        { id: botId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages] },
+        { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
       ],
-    });
-  } catch (err) {
-    console.error('Failed to create mgmt channel:', err);
-    return interaction.editReply({ content: '❌ Fehler beim Erstellen des Management-Channels. Prüfe Bot-Berechtigungen.', components: [] });
-  }
-
-  // Create private voice channel with the same permissions
-  const vcName = `lfg-${dungeon.toLowerCase().replace(/'/g, '').replace(/[^a-z0-9]+/g, '-')}-${keyLevel}`
-    .replace(/-{2,}/g, '-').replace(/^-|-$/g, '').slice(0, 100);
-
-  let voiceChannel = null;
-  try {
-    voiceChannel = await guild.channels.create({
+    }),
+    guild.channels.create({
       name:   vcName,
       type:   ChannelType.GuildVoice,
       parent: resolvedParent,
       permissionOverwrites: [
         { id: guild.id, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
-        {
-          id:    interaction.client.user.id,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.MoveMembers],
-        },
-        {
-          id:    interaction.user.id,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak],
-        },
+        { id: botId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.MoveMembers] },
+        { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak] },
       ],
-    });
-    await db.setLfgVoiceChannel(lfgId, voiceChannel.id);
-  } catch (err) {
-    console.warn('Failed to create voice channel:', err);
+    }),
+  ]);
+
+  if (mgmtResult.status === 'rejected') {
+    console.error('Failed to create mgmt channel:', mgmtResult.reason);
+    if (voiceResult.status === 'fulfilled') voiceResult.value.delete().catch(() => {});
+    return interaction.editReply({ content: '❌ Fehler beim Erstellen des Management-Channels. Prüfe Bot-Berechtigungen.', components: [] });
   }
 
-  // Post info embed + close button in mgmt channel
+  const mgmtChannel  = mgmtResult.value;
+  const voiceChannel = voiceResult.status === 'fulfilled' ? voiceResult.value : null;
+  if (voiceResult.status === 'rejected') console.warn('Failed to create voice channel:', voiceResult.reason);
+
+  // Build embeds (synchronous, no I/O)
   const infoEmbed = new EmbedBuilder()
     .setColor(0xf39c12)
     .setTitle(`LFG: ${dungeon} +${keyLevel}`)
@@ -278,69 +266,61 @@ async function handleConfirm(interaction) {
     .setFooter({ text: `LFG-ID: ${lfgId}` })
     .setTimestamp();
 
-  const infoMsg = await mgmtChannel.send({
-    content: `${interaction.user} Hier siehst du eingehende Bewerbungen. Klicke **Beenden** um die LFG zu schließen.`,
-    embeds:  [infoEmbed],
-    components: [
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`lfgstart_${lfgId}`)
-          .setLabel('Key starten')
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId(`lfgclose_${lfgId}`)
-          .setLabel('LFG Beenden')
-          .setStyle(ButtonStyle.Danger),
-      ),
-    ],
-  });
-
-  await db.setLfgMgmtChannel(lfgId, mgmtChannel.id, infoMsg.id);
-
-  // Post announcement with Apply button in each requested role channel
-  for (const role of roles) {
-    const mapping = ROLE_CHANNELS[role];
-    if (!mapping) continue;
+  const announcePayloads = roles.flatMap(role => {
+    const mapping      = ROLE_CHANNELS[role];
     const targetChannel = guild.channels.cache.get(process.env[mapping.envKey]);
-    if (!targetChannel) {
-      console.warn(`Channel for ${mapping.envKey} not found`);
-      continue;
-    }
+    if (!targetChannel) { console.warn(`Channel for ${mapping.envKey} not found`); return []; }
 
-    const announceEmbed = new EmbedBuilder()
+    const embed = new EmbedBuilder()
       .setColor(mapping.color)
       .setTitle(`${mapping.emoji} ${mapping.label} gesucht — ${dungeon} +${keyLevel}`)
       .setAuthor({ name: interaction.user.displayName, iconURL: interaction.user.displayAvatarURL() })
       .addFields(
-        { name: 'Dungeon',      value: dungeon,        inline: true },
-        { name: 'Key Level',    value: `+${keyLevel}`, inline: true },
-        { name: 'Anforderung',  value: scoreLabel,     inline: false },
-        { name: 'Keyholder',    value: `${char.char_name} — ${char.rio_score ?? 0} IO (${char.class ?? '?'} / ${char.spec ?? '?'})`, inline: false },
+        { name: 'Dungeon',     value: dungeon,                                                                                         inline: true },
+        { name: 'Key Level',   value: `+${keyLevel}`,                                                                                  inline: true },
+        { name: 'Anforderung', value: scoreLabel,                                                                                      inline: false },
+        { name: 'Keyholder',   value: `${char.char_name} — ${char.rio_score ?? 0} IO (${char.class ?? '?'} / ${char.spec ?? '?'})`,   inline: false },
       )
       .setFooter({ text: 'Wird automatisch nach 1 Stunde gelöscht' })
       .setTimestamp();
 
-    let announced;
-    try {
-      announced = await targetChannel.send({
-        embeds:     [announceEmbed],
-        components: [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`lfgapply_${lfgId}`)
-              .setLabel('Bewerben')
-              .setStyle(ButtonStyle.Primary),
-          ),
-        ],
-      });
-    } catch (err) {
-      console.error(`Failed to post to ${mapping.envKey}:`, err);
-      continue;
-    }
+    return [{ targetChannel, embed, role }];
+  });
 
-    await db.addLfgAnnouncement(lfgId, targetChannel.id, announced.id);
-    setTimeout(() => announced.delete().catch(() => {}), 60 * 60 * 1000);
-  }
+  // Fire all sends in parallel: mgmt info message + all role announcements
+  const applyRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`lfgapply_${lfgId}`).setLabel('Bewerben').setStyle(ButtonStyle.Primary),
+  );
+  const mgmtButtons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`lfgstart_${lfgId}`).setLabel('Key starten').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`lfgclose_${lfgId}`).setLabel('LFG Beenden').setStyle(ButtonStyle.Danger),
+  );
+
+  const [infoMsg, ...announcedResults] = await Promise.all([
+    mgmtChannel.send({
+      content:    `${interaction.user} Hier siehst du eingehende Bewerbungen. Klicke **Beenden** um die LFG zu schließen.`,
+      embeds:     [infoEmbed],
+      components: [mgmtButtons],
+    }),
+    ...announcePayloads.map(({ targetChannel, embed }) =>
+      targetChannel.send({ embeds: [embed], components: [applyRow] }).catch(err => {
+        console.error(`Failed to post to channel ${targetChannel.id}:`, err);
+        return null;
+      }),
+    ),
+  ]);
+
+  // Persist everything in parallel
+  await Promise.all([
+    db.setLfgMgmtChannel(lfgId, mgmtChannel.id, infoMsg.id),
+    voiceChannel ? db.setLfgVoiceChannel(lfgId, voiceChannel.id) : Promise.resolve(),
+    ...announcedResults.map((msg, i) => {
+      if (!msg) return Promise.resolve();
+      const { targetChannel } = announcePayloads[i];
+      setTimeout(() => msg.delete().catch(() => {}), 60 * 60 * 1000);
+      return db.addLfgAnnouncement(lfgId, targetChannel.id, msg.id);
+    }),
+  ]);
 
   await interaction.editReply({
     content: `✅ LFG erstellt! Dein Management-Channel: ${mgmtChannel}`,
