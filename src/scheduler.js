@@ -7,15 +7,20 @@ const { applyRoles }  = require('./roles');
  * First run: at the next 4:00 AM server time.
  * Then: every 24 hours.
  */
+const LFG_TIMEOUT_MS = (parseInt(process.env.LFG_TIMEOUT_HOURS, 10) || 2) * 60 * 60 * 1000;
+const LFG_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
+
 function startScheduler(client) {
   const msUntil4am = getMsUntilNextHour(4);
   console.log(`⏰ Daily refresh scheduled in ${Math.round(msUntil4am / 1000 / 60)} minutes (next 4:00 AM)`);
 
   setTimeout(async () => {
     await runDailyRefresh(client);
-    // After first run, repeat every 24h exactly
     setInterval(() => runDailyRefresh(client), 24 * 60 * 60 * 1000);
   }, msUntil4am);
+
+  // LFG stale-group cleanup every 30 minutes
+  setInterval(() => runLfgCleanup(client), LFG_CLEANUP_INTERVAL_MS);
 }
 
 async function runDailyRefresh(client) {
@@ -57,6 +62,59 @@ async function runDailyRefresh(client) {
   }
 
   console.log(`✅ Daily refresh done — ${updated} updated, ${failed} failed`);
+}
+
+async function runLfgCleanup(client) {
+  const stale = await db.getStaleOpenLfgGroups(LFG_TIMEOUT_MS);
+  if (!stale.length) return;
+
+  console.log(`🧹 LFG cleanup: closing ${stale.length} stale group(s)`);
+
+  for (const group of stale) {
+    await db.closeLfgGroup(group.id);
+
+    let guild;
+    try { guild = await client.guilds.fetch(group.guild_id); } catch { continue; }
+
+    // Delete announcement messages
+    const announcements = await db.getLfgAnnouncements(group.id);
+    for (const ann of announcements) {
+      try {
+        const ch  = guild.channels.cache.get(ann.channel_id) ?? await guild.channels.fetch(ann.channel_id).catch(() => null);
+        const msg = ch ? await ch.messages.fetch(ann.message_id).catch(() => null) : null;
+        if (msg) await msg.delete();
+      } catch { /* already gone */ }
+    }
+    await db.deleteLfgAnnouncements(group.id);
+
+    // Cancel pending/approved applications
+    const apps = await db.getLfgApplications(group.id);
+    const inviteChannel = guild.channels.cache.get(process.env.CHANNEL_PENDING_INVITES);
+    for (const app of apps) {
+      if (!['pending', 'approved'].includes(app.status)) continue;
+      await db.setApplicationStatus(app.id, 'cancelled');
+      if (app.invite_message_id && inviteChannel) {
+        try {
+          const msg = await inviteChannel.messages.fetch(app.invite_message_id);
+          await msg.edit({ content: `<@${app.applicant_id}> Die LFG ist abgelaufen und wurde automatisch geschlossen.`, components: [] });
+        } catch { /* already gone */ }
+      }
+    }
+
+    // Delete voice channel
+    if (group.voice_channel_id) {
+      const vc = guild.channels.cache.get(group.voice_channel_id) ?? await guild.channels.fetch(group.voice_channel_id).catch(() => null);
+      if (vc) await vc.delete().catch(() => {});
+    }
+
+    // Delete mgmt channel
+    if (group.mgmt_channel_id) {
+      const mc = guild.channels.cache.get(group.mgmt_channel_id) ?? await guild.channels.fetch(group.mgmt_channel_id).catch(() => null);
+      if (mc) await mc.delete().catch(() => {});
+    }
+
+    console.log(`   Closed stale LFG ${group.id} (${group.dungeon} +${group.key_level})`);
+  }
 }
 
 function getMsUntilNextHour(hour) {

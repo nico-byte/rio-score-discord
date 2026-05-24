@@ -145,6 +145,15 @@ async function getCharacterById(id) {
   return res.rows[0] ?? null;
 }
 
+async function getStaleOpenLfgGroups(olderThanMs) {
+  const cutoff = Date.now() - olderThanMs;
+  const res = await db.execute({
+    sql:  `SELECT * FROM lfg_groups WHERE status='open' AND created_at < ?`,
+    args: [cutoff],
+  });
+  return res.rows.map(r => ({ ...r, roles_wanted: JSON.parse(r.roles_wanted) }));
+}
+
 async function getStaleCharacters() {
   const cutoff = Date.now() - 20 * 60 * 60 * 1000;
   const res = await db.execute({
@@ -177,6 +186,16 @@ async function setLfgVoiceChannel(lfgId, channelId) {
     sql:  `UPDATE lfg_groups SET voice_channel_id=? WHERE id=?`,
     args: [channelId, lfgId],
   });
+}
+
+async function getLfgGroupByVoiceChannel(channelId) {
+  const res = await db.execute({
+    sql:  `SELECT * FROM lfg_groups WHERE voice_channel_id=? AND status IN ('open','closed')`,
+    args: [channelId],
+  });
+  const row = res.rows[0];
+  if (!row) return null;
+  return { ...row, roles_wanted: JSON.parse(row.roles_wanted) };
 }
 
 async function getLfgGroup(lfgId) {
@@ -280,9 +299,9 @@ async function getExistingApplication(lfgId, applicantId) {
 module.exports = {
   init,
   upsertCharacter, updateScore, setActive, setInactive, setOnlyActive, removeCharacter,
-  getCharacters, getActiveCharacters, getActiveCharacter, getCharacterById, getStaleCharacters,
+  getCharacters, getActiveCharacters, getActiveCharacter, getCharacterById, getStaleCharacters, getStaleOpenLfgGroups,
   // LFG
-  createLfgGroup, setLfgMgmtChannel, setLfgVoiceChannel, getLfgGroup, closeLfgGroup, getLfgSpotsLeft,
+  createLfgGroup, setLfgMgmtChannel, setLfgVoiceChannel, getLfgGroup, getLfgGroupByVoiceChannel, closeLfgGroup, getLfgSpotsLeft,
   addLfgAnnouncement, getLfgAnnouncements, deleteLfgAnnouncements,
   createApplication, setApplicationMgmtMsg, setApplicationInviteMsg,
   getApplication, setApplicationStatus, cancelOtherApplications,

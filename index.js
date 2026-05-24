@@ -52,6 +52,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates,
   ],
 });
 
@@ -117,6 +118,20 @@ client.on('interactionCreate', async interaction => {
       await timed('BTN', id, who, () => invite.handleDecline(interaction));
     }
   }
+});
+
+// ─── Auto-delete empty LFG voice channels ───────────────────────────────────
+client.on('voiceStateUpdate', async (oldState, newState) => {
+  const leftChannel = oldState.channel;
+  if (!leftChannel || leftChannel.id === newState.channelId) return;
+  if (leftChannel.members.size > 0) return;
+
+  const group = await db.getLfgGroupByVoiceChannel(leftChannel.id).catch(() => null);
+  if (!group) return;
+
+  console.log(`[${ts()}] [VC] Auto-deleting empty LFG voice channel ${leftChannel.id} (LFG ${group.id})`);
+  await leftChannel.delete().catch(() => {});
+  await db.setLfgVoiceChannel(group.id, null);
 });
 
 // ─── Error handling ─────────────────────────────────────────────────────────
