@@ -1,23 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const db                = require('../db');
-const { fetchRioScore } = require('../rioApi');
-const { TIERS }         = require('../roles');
-
-const definition = new SlashCommandBuilder()
-  .setName('addalt')
-  .setDescription('Fügt einen Twink zu deinem Profil hinzu')
-  .addStringOption(opt =>
-    opt.setName('name').setDescription('Charaktername').setRequired(true))
-  .addStringOption(opt =>
-    opt.setName('realm').setDescription('Realm (z.B. blackrock)').setRequired(true))
-  .addStringOption(opt =>
-    opt.setName('region').setDescription('Region').setRequired(false)
-      .addChoices(
-        { name: 'EU', value: 'eu' },
-        { name: 'US', value: 'us' },
-        { name: 'TW', value: 'tw' },
-        { name: 'KR', value: 'kr' },
-      ));
+const { EmbedBuilder }  = require('discord.js');
+const db                = require('../../db');
+const { fetchRioScore } = require('../../rioApi');
+const { TIERS }         = require('../../roles');
 
 async function execute(interaction) {
   await interaction.deferReply({ ephemeral: true });
@@ -33,9 +17,7 @@ async function execute(interaction) {
 
   await db.upsertCharacter(interaction.user.id, name, realm, region);
   const chars = await db.getCharacters(interaction.user.id);
-  const char  = chars.find(
-    c => c.char_name === name && c.realm === realm && c.region === region
-  );
+  const char  = chars.find(c => c.char_name === name && c.realm === realm && c.region === region);
   await db.updateScore(char.id, score, spec, cls);
 
   const tier = TIERS.find(t => score >= t.min) ?? TIERS[TIERS.length - 1];
@@ -50,10 +32,10 @@ async function execute(interaction) {
       { name: 'Klasse',          value: cls,                                        inline: true },
       { name: 'Spezialisierung', value: spec,                                       inline: true },
     )
-    .setFooter({ text: 'Alle Chars anzeigen mit /myalts' })
+    .setFooter({ text: 'Alle Chars anzeigen mit /rio show' })
     .setTimestamp();
 
   await interaction.editReply({ embeds: [embed] });
 }
 
-module.exports = { definition, execute };
+module.exports = { execute };

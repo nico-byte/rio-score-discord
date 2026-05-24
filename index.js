@@ -1,17 +1,16 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
 
-const rioCommand    = require('./src/commands/rio');
-const addaltCommand = require('./src/commands/addalt');
-const myaltsCommand = require('./src/commands/myalts');
+const rioCommand  = require('./src/commands/rio');
+const lfgCommand  = require('./src/commands/lfg');
+const teamCommand = require('./src/commands/team');
 const { startScheduler } = require('./src/scheduler');
-const { startLfgForwarder } = require('./src/lfgForwarder');
 
 // ─── Command registry ───────────────────────────────────────────────────────
 const COMMANDS = {
-  rio:    rioCommand,
-  addalt: addaltCommand,
-  myalts: myaltsCommand,
+  rio:  rioCommand,
+  lfg:  lfgCommand,
+  team: teamCommand,
 };
 
 // ─── Register slash commands with Discord ───────────────────────────────────
@@ -22,7 +21,7 @@ async function registerCommands() {
       Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
       { body: Object.values(COMMANDS).map(c => c.definition.toJSON()) },
     );
-    console.log('✅ Slash commands registered (/rio, /addalt, /myalts)');
+    console.log('✅ Slash commands registered (/rio, /lfg, /team)');
   } catch (err) {
     console.error('Failed to register commands:', err);
   }
@@ -33,7 +32,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
   ],
 });
 
@@ -41,11 +40,10 @@ client.once('clientReady', async () => {
   console.log(`✅ Bot online als ${client.user.tag}`);
   await registerCommands();
   startScheduler(client);
-  startLfgForwarder(client);
 });
 
 client.on('interactionCreate', async interaction => {
-  // Slash commands
+  // ── Slash commands ──────────────────────────────────────────────────────
   if (interaction.isChatInputCommand()) {
     const command = COMMANDS[interaction.commandName];
     if (!command) return;
@@ -57,11 +55,50 @@ client.on('interactionCreate', async interaction => {
     return;
   }
 
-  if (interaction.isButton() && interaction.customId.startsWith('myalts_')) {
-    try {
-      await myaltsCommand.handleButton(interaction);
-    } catch (err) {
-      console.error('Button error:', err);
+  // ── Modal submits ───────────────────────────────────────────────────────
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId === 'lfgcreate_modal') {
+      try {
+        await lfgCommand.handleModal(interaction);
+      } catch (err) {
+        console.error('Modal error (lfgcreate):', err);
+      }
+    }
+    return;
+  }
+
+  // ── Select menus ────────────────────────────────────────────────────────
+  if (interaction.isStringSelectMenu()) {
+    if (interaction.customId.startsWith('lfgcreate_')) {
+      try {
+        await lfgCommand.handleSelect(interaction);
+      } catch (err) {
+        console.error('Select error (lfgcreate):', err);
+      }
+    }
+    return;
+  }
+
+  // ── Buttons ─────────────────────────────────────────────────────────────
+  if (interaction.isButton()) {
+    if (interaction.customId.startsWith('rioshow_')) {
+      try {
+        await rioCommand.handleButton(interaction);
+      } catch (err) {
+        console.error('Button error (rioshow):', err);
+      }
+    } else if (interaction.customId === 'lfgcreate_confirm') {
+      try {
+        await lfgCommand.handleConfirm(interaction);
+      } catch (err) {
+        console.error('Button error (lfgcreate_confirm):', err);
+      }
+    } else if (interaction.customId === 'lfgcreate_cancel') {
+      try {
+        await lfgCommand.handleCancel(interaction);
+      } catch (err) {
+        console.error('Button error (lfgcreate_cancel):', err);
+      }
     }
   }
 });
