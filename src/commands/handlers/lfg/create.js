@@ -8,6 +8,7 @@ const {
   PermissionFlagsBits,
 } = require('discord.js');
 const db = require('../../../db');
+const { sessionSet, sessionGet, sessionDelete } = require('../../../utils');
 
 // ── Static data ───────────────────────────────────────────────────────────────
 const DUNGEONS = [
@@ -63,7 +64,7 @@ async function showStep1(interaction) {
   }
 
   const defaultChar = chars.find(c => c.is_active) ?? chars[0];
-  sessions.set(interaction.user.id, {
+  sessionSet(sessions, interaction.user.id, {
     dungeon:     DUNGEONS[0],
     keyLevel:    '2',
     characterId: String(defaultChar.id),
@@ -98,7 +99,7 @@ async function showStep1(interaction) {
 
 // ── Step 2: "Weiter" button ───────────────────────────────────────────────────
 async function showStep2(interaction) {
-  const session = sessions.get(interaction.user.id);
+  const session = sessionGet(sessions, interaction.user.id);
   if (!session) {
     return interaction.update({ content: '❌ Sitzung abgelaufen. Bitte `/lfg create` erneut nutzen.', components: [] });
   }
@@ -152,7 +153,7 @@ async function showStep2(interaction) {
 
 // ── Select menu updates ───────────────────────────────────────────────────────
 async function handleSelect(interaction) {
-  const session = sessions.get(interaction.user.id);
+  const session = sessionGet(sessions, interaction.user.id);
   if (!session) {
     return interaction.update({ content: '❌ Sitzung abgelaufen. Bitte `/lfg create` erneut nutzen.', components: [] });
   }
@@ -168,7 +169,7 @@ async function handleSelect(interaction) {
 
 // ── Confirm: create management channel + post announcements ───────────────────
 async function handleConfirm(interaction) {
-  const session = sessions.get(interaction.user.id);
+  const session = sessionGet(sessions, interaction.user.id);
   if (!session) {
     return interaction.update({ content: '❌ Sitzung abgelaufen. Bitte `/lfg create` erneut nutzen.', components: [] });
   }
@@ -179,7 +180,7 @@ async function handleConfirm(interaction) {
     return interaction.followUp({ content: '❌ Bitte wähle mindestens eine gesuchte Rolle aus.', ephemeral: true });
   }
 
-  sessions.delete(interaction.user.id);
+  sessionDelete(sessions, interaction.user.id);
 
   const { dungeon, keyLevel, characterId, roles, scoreReq } = session;
   const scoreLabel = SCORE_LABELS[scoreReq];
@@ -330,7 +331,7 @@ async function handleConfirm(interaction) {
 
 // ── Cancel button ─────────────────────────────────────────────────────────────
 async function handleCancel(interaction) {
-  sessions.delete(interaction.user.id);
+  sessionDelete(sessions, interaction.user.id);
   await interaction.update({ content: '❌ LFG abgebrochen.', components: [] });
 }
 

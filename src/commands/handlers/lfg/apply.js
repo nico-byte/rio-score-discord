@@ -6,6 +6,7 @@ const {
   EmbedBuilder,
 } = require('discord.js');
 const db = require('../../../db');
+const { sessionSet, sessionGet, sessionDelete, fetchChannel } = require('../../../utils');
 
 // ── In-memory: userId → { lfgId, selectedCharIds } ───────────────────────────
 const sessions = new Map();
@@ -41,7 +42,7 @@ async function handleApplyButton(interaction) {
     });
   }
 
-  sessions.set(interaction.user.id, { lfgId, selectedCharIds: [] });
+  sessionSet(sessions, interaction.user.id, { lfgId, selectedCharIds: [] });
 
   const charSelect = new StringSelectMenuBuilder()
     .setCustomId('lfgapply_chars')
@@ -69,7 +70,7 @@ async function handleApplyButton(interaction) {
 
 // ── Character select update ───────────────────────────────────────────────────
 async function handleApplySelect(interaction) {
-  const session = sessions.get(interaction.user.id);
+  const session = sessionGet(sessions, interaction.user.id);
   if (!session) {
     return interaction.update({ content: '❌ Sitzung abgelaufen. Klicke erneut auf Bewerben.', components: [] });
   }
@@ -79,7 +80,7 @@ async function handleApplySelect(interaction) {
 
 // ── Confirm application ───────────────────────────────────────────────────────
 async function handleApplyConfirm(interaction) {
-  const session = sessions.get(interaction.user.id);
+  const session = sessionGet(sessions, interaction.user.id);
   if (!session) {
     return interaction.update({ content: '❌ Sitzung abgelaufen. Klicke erneut auf Bewerben.', components: [] });
   }
@@ -91,7 +92,7 @@ async function handleApplyConfirm(interaction) {
   }
 
   const { lfgId, selectedCharIds } = session;
-  sessions.delete(interaction.user.id);
+  sessionDelete(sessions, interaction.user.id);
 
   // Re-check group is still open
   const group = await db.getLfgGroup(lfgId);
@@ -118,7 +119,7 @@ async function handleApplyConfirm(interaction) {
 
   // Post application card in keyholder's mgmt channel
   const guild      = interaction.guild;
-  const mgmtChannel = guild.channels.cache.get(group.mgmt_channel_id);
+  const mgmtChannel = await fetchChannel(guild, group.mgmt_channel_id);
 
   if (!mgmtChannel) {
     console.warn(`Mgmt channel ${group.mgmt_channel_id} not found for LFG ${lfgId}`);
@@ -162,7 +163,7 @@ async function handleApplyConfirm(interaction) {
 
 // ── Cancel application flow ───────────────────────────────────────────────────
 async function handleApplyCancel(interaction) {
-  sessions.delete(interaction.user.id);
+  sessionDelete(sessions, interaction.user.id);
   await interaction.update({ content: '❌ Bewerbung abgebrochen.', components: [] });
 }
 

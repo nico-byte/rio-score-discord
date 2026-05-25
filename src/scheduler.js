@@ -7,8 +7,8 @@ const { applyRoles }  = require('./roles');
  * First run: at the next 4:00 AM server time.
  * Then: every 24 hours.
  */
-const LFG_TIMEOUT_MS = (parseInt(process.env.LFG_TIMEOUT_HOURS, 10) || 2) * 60 * 60 * 1000;
-const LFG_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
+const LFG_TIMEOUT_MS          = (parseInt(process.env.LFG_TIMEOUT_HOURS, 10) || 2) * 60 * 60 * 1000;
+const ANNOUNCEMENT_LIFETIME_MS = 60 * 60 * 1000; // matches the 1h setTimeout in create.js
 
 function startScheduler(client) {
   const msUntil4am = getMsUntilNextHour(4);
@@ -19,8 +19,11 @@ function startScheduler(client) {
     setInterval(() => runDailyRefresh(client), 24 * 60 * 60 * 1000);
   }, msUntil4am);
 
-  // LFG stale-group cleanup every 30 minutes
-  setInterval(() => runLfgCleanup(client), LFG_CLEANUP_INTERVAL_MS);
+  // Announcement sweep every 5 minutes (catches deletions lost on restart)
+  setInterval(() => runAnnouncementSweep(client), 5 * 60 * 1000);
+
+  // Stale LFG group cleanup every 30 minutes
+  setInterval(() => runLfgCleanup(client), 30 * 60 * 1000);
 }
 
 async function runDailyRefresh(client) {
@@ -62,6 +65,24 @@ async function runDailyRefresh(client) {
   }
 
   console.log(`✅ Daily refresh done — ${updated} updated, ${failed} failed`);
+}
+
+async function runAnnouncementSweep(client) {
+  const expired = await db.getExpiredAnnouncements(ANNOUNCEMENT_LIFETIME_MS);
+  if (!expired.length) return;
+
+  console.log(`🧹 Announcement sweep: deleting ${expired.length} expired announcement(s)`);
+  await Promise.all(expired.map(async ann => {
+    try {
+      const guild = await client.guilds.fetch(ann.guild_id).catch(() => null);
+      if (guild) {
+        const ch  = guild.channels.cache.get(ann.channel_id) ?? await guild.channels.fetch(ann.channel_id).catch(() => null);
+        const msg = ch ? await ch.messages.fetch(ann.message_id).catch(() => null) : null;
+        if (msg) await msg.delete().catch(() => {});
+      }
+    } catch { /* already gone */ }
+    await db.deleteLfgAnnouncement(ann.id);
+  }));
 }
 
 async function runLfgCleanup(client) {

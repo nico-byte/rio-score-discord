@@ -8,6 +8,7 @@ const { startScheduler } = require('./src/scheduler');
 const apply  = require('./src/commands/handlers/lfg/apply');
 const manage = require('./src/commands/handlers/lfg/manage');
 const invite = require('./src/commands/handlers/lfg/invite');
+const channelGuard = require('./src/channelGuard');
 
 // ─── Logging ────────────────────────────────────────────────────────────────
 function ts() {
@@ -67,6 +68,10 @@ client.on('interactionCreate', async interaction => {
 
   // ── Slash commands ──────────────────────────────────────────────────────
   if (interaction.isChatInputCommand()) {
+    const channelError = channelGuard.checkCommandChannel(interaction);
+    if (channelError) {
+      return interaction.reply({ content: channelError, ephemeral: true });
+    }
     const command = COMMANDS[interaction.commandName];
     if (!command) return;
     const sub   = interaction.options.getSubcommand(false);
@@ -119,6 +124,9 @@ client.on('interactionCreate', async interaction => {
     }
   }
 });
+
+// ─── Channel guard (tool channels only allow their own commands) ─────────────
+client.on('messageCreate', message => channelGuard.handleMessage(message));
 
 // ─── Auto-delete empty LFG voice channels ───────────────────────────────────
 client.on('voiceStateUpdate', async (oldState, newState) => {

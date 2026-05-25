@@ -240,6 +240,22 @@ async function deleteLfgAnnouncements(lfgId) {
   await db.execute({ sql: `DELETE FROM lfg_announcements WHERE lfg_id=?`, args: [lfgId] });
 }
 
+async function deleteLfgAnnouncement(id) {
+  await db.execute({ sql: `DELETE FROM lfg_announcements WHERE id=?`, args: [id] });
+}
+
+// Returns announcements whose parent LFG group was created more than olderThanMs ago
+async function getExpiredAnnouncements(olderThanMs) {
+  const cutoff = Date.now() - olderThanMs;
+  const res = await db.execute({
+    sql:  `SELECT a.*, g.guild_id FROM lfg_announcements a
+           JOIN lfg_groups g ON g.id = a.lfg_id
+           WHERE g.created_at < ?`,
+    args: [cutoff],
+  });
+  return res.rows;
+}
+
 // ── LFG applications ──────────────────────────────────────────────────────────
 
 async function createApplication({ lfgId, applicantId, charIds }) {
@@ -302,7 +318,7 @@ module.exports = {
   getCharacters, getActiveCharacters, getActiveCharacter, getCharacterById, getStaleCharacters, getStaleOpenLfgGroups,
   // LFG
   createLfgGroup, setLfgMgmtChannel, setLfgVoiceChannel, getLfgGroup, getLfgGroupByVoiceChannel, closeLfgGroup, getLfgSpotsLeft,
-  addLfgAnnouncement, getLfgAnnouncements, deleteLfgAnnouncements,
+  addLfgAnnouncement, getLfgAnnouncements, deleteLfgAnnouncements, deleteLfgAnnouncement, getExpiredAnnouncements,
   createApplication, setApplicationMgmtMsg, setApplicationInviteMsg,
   getApplication, setApplicationStatus, cancelOtherApplications,
   getLfgApplications, getExistingApplication,

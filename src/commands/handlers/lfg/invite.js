@@ -4,6 +4,7 @@ const {
   ButtonStyle,
 } = require('discord.js');
 const db = require('../../../db');
+const { fetchChannel } = require('../../../utils');
 
 // ── Accept invite ─────────────────────────────────────────────────────────────
 async function handleAccept(interaction) {
@@ -32,7 +33,7 @@ async function handleAccept(interaction) {
   const guild  = interaction.guild;
 
   if (group?.mgmt_channel_id) {
-    const mgmtChannel = guild.channels.cache.get(group.mgmt_channel_id);
+    const mgmtChannel = await fetchChannel(guild, group.mgmt_channel_id);
     if (mgmtChannel) {
       await mgmtChannel.permissionOverwrites.edit(interaction.user.id, {
         ViewChannel:        true,
@@ -46,7 +47,7 @@ async function handleAccept(interaction) {
 
   // Grant access to the voice channel
   if (group?.voice_channel_id) {
-    const voiceChannel = guild.channels.cache.get(group.voice_channel_id);
+    const voiceChannel = await fetchChannel(guild, group.voice_channel_id);
     if (voiceChannel) {
       await voiceChannel.permissionOverwrites.edit(interaction.user.id, {
         ViewChannel: true,
@@ -63,7 +64,7 @@ async function handleAccept(interaction) {
   }).catch(() => {});
 
   // Silently update/cancel other invite messages for this user's cancelled applications
-  const inviteChannel = guild.channels.cache.get(process.env.CHANNEL_PENDING_INVITES);
+  const inviteChannel = await fetchChannel(guild, process.env.CHANNEL_PENDING_INVITES);
   if (inviteChannel) {
     // We can't efficiently query all cancelled apps here, but cancelOtherApplications
     // already updated the DB. The invite messages will just show stale buttons until
@@ -96,7 +97,7 @@ async function handleDecline(interaction) {
   const guild  = interaction.guild;
 
   if (group?.mgmt_channel_id) {
-    const mgmtChannel = guild.channels.cache.get(group.mgmt_channel_id);
+    const mgmtChannel = await fetchChannel(guild, group.mgmt_channel_id);
     if (mgmtChannel) {
       await mgmtChannel.send(`❌ <@${interaction.user.id}> hat die Einladung abgelehnt. Ein Platz ist wieder frei.`).catch(() => {});
     }

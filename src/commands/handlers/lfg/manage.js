@@ -5,6 +5,7 @@ const {
   EmbedBuilder,
 } = require('discord.js');
 const db = require('../../../db');
+const { fetchChannel } = require('../../../utils');
 
 // ── Approve application ───────────────────────────────────────────────────────
 async function handleApprove(interaction) {
@@ -37,7 +38,7 @@ async function handleApprove(interaction) {
   // Post invite in #pending-invites
   const guild          = interaction.guild;
   const inviteChannelId = process.env.CHANNEL_PENDING_INVITES;
-  const inviteChannel  = inviteChannelId ? guild.channels.cache.get(inviteChannelId) : null;
+  const inviteChannel  = inviteChannelId ? await fetchChannel(guild, inviteChannelId) : null;
 
   if (!inviteChannel) {
     console.warn('CHANNEL_PENDING_INVITES not configured or not found');
@@ -54,7 +55,7 @@ async function handleApprove(interaction) {
   let applicant;
   try { applicant = await guild.members.fetch(app.applicant_id); } catch { applicant = null; }
 
-  const voiceChannel = group.voice_channel_id ? guild.channels.cache.get(group.voice_channel_id) : null;
+  const voiceChannel = group.voice_channel_id ? await fetchChannel(guild, group.voice_channel_id) : null;
 
   const inviteEmbed = new EmbedBuilder()
     .setColor(0x2ecc71)
@@ -119,7 +120,7 @@ async function handleReject(interaction) {
   // If there was an invite message, remove the buttons from it
   if (app.invite_message_id) {
     const guild          = interaction.guild;
-    const inviteChannel  = guild.channels.cache.get(process.env.CHANNEL_PENDING_INVITES);
+    const inviteChannel  = await fetchChannel(guild, process.env.CHANNEL_PENDING_INVITES);
     if (inviteChannel) {
       try {
         const inviteMsg = await inviteChannel.messages.fetch(app.invite_message_id);
@@ -152,7 +153,7 @@ async function handleStart(interaction) {
   const announcements = await db.getLfgAnnouncements(lfgId);
   for (const ann of announcements) {
     try {
-      const ch  = guild.channels.cache.get(ann.channel_id);
+      const ch  = await fetchChannel(guild, ann.channel_id);
       const msg = ch ? await ch.messages.fetch(ann.message_id) : null;
       if (msg) await msg.delete();
     } catch { /* already gone */ }
@@ -161,7 +162,7 @@ async function handleStart(interaction) {
 
   // Cancel remaining pending/approved applications and update their invite messages
   const apps = await db.getLfgApplications(lfgId);
-  const inviteChannel = guild.channels.cache.get(process.env.CHANNEL_PENDING_INVITES);
+  const inviteChannel = await fetchChannel(guild, process.env.CHANNEL_PENDING_INVITES);
 
   for (const app of apps) {
     if (['pending', 'approved'].includes(app.status)) {
@@ -177,7 +178,7 @@ async function handleStart(interaction) {
   }
 
   // Delete mgmt channel, leave voice channel open
-  const mgmtChannel = guild.channels.cache.get(group.mgmt_channel_id);
+  const mgmtChannel = await fetchChannel(guild, group.mgmt_channel_id);
   if (mgmtChannel) {
     await mgmtChannel.send('🎉 Key gestartet! Viel Erfolg! Dieser Channel wird in 10 Sekunden gelöscht.').catch(() => {});
     setTimeout(() => mgmtChannel.delete().catch(() => {}), 10_000);
@@ -205,7 +206,7 @@ async function handleClose(interaction) {
   const announcements = await db.getLfgAnnouncements(lfgId);
   for (const ann of announcements) {
     try {
-      const ch  = guild.channels.cache.get(ann.channel_id);
+      const ch  = await fetchChannel(guild, ann.channel_id);
       const msg = ch ? await ch.messages.fetch(ann.message_id) : null;
       if (msg) await msg.delete();
     } catch { /* already gone */ }
@@ -214,7 +215,7 @@ async function handleClose(interaction) {
 
   // Cancel all pending/approved applications and update mgmt cards + invite messages
   const apps = await db.getLfgApplications(lfgId);
-  const inviteChannel = guild.channels.cache.get(process.env.CHANNEL_PENDING_INVITES);
+  const inviteChannel = await fetchChannel(guild, process.env.CHANNEL_PENDING_INVITES);
 
   for (const app of apps) {
     if (['pending', 'approved'].includes(app.status)) {
@@ -231,12 +232,12 @@ async function handleClose(interaction) {
 
   // Delete voice channel immediately
   if (group.voice_channel_id) {
-    const voiceChannel = guild.channels.cache.get(group.voice_channel_id);
+    const voiceChannel = await fetchChannel(guild, group.voice_channel_id);
     if (voiceChannel) await voiceChannel.delete().catch(() => {});
   }
 
   // Delete mgmt channel after a short delay so the user sees the confirmation
-  const mgmtChannel = guild.channels.cache.get(group.mgmt_channel_id);
+  const mgmtChannel = await fetchChannel(guild, group.mgmt_channel_id);
   if (mgmtChannel) {
     await mgmtChannel.send('✅ LFG beendet. Dieser Channel wird in 10 Sekunden gelöscht.').catch(() => {});
     setTimeout(() => mgmtChannel.delete().catch(() => {}), 10_000);
