@@ -85,7 +85,7 @@ client.on('interactionCreate', async interaction => {
     const id = interaction.customId;
     if (id.startsWith('lfgcreate_')) {
       await timed('SEL', id, who, () => lfgCommand.handleSelect(interaction));
-    } else if (id === 'lfgapply_chars' || id === 'lfgapply_roles') {
+    } else if (id === 'lfgapply_chars' || id.startsWith('lfgapply_role_')) {
       await timed('SEL', id, who, () => apply.handleApplySelect(interaction));
     } else if (id.startsWith('lfgapproverolesel_')) {
       await timed('SEL', id, who, () => manage.handleApproveRoleSelect(interaction));
@@ -109,6 +109,8 @@ client.on('interactionCreate', async interaction => {
       await timed('BTN', id, who, () => apply.handleApplyConfirm(interaction));
     } else if (id === 'lfgapply_cancel') {
       await timed('BTN', id, who, () => apply.handleApplyCancel(interaction));
+    } else if (id === 'lfgapply_next') {
+      await timed('BTN', id, who, () => apply.handleApplyNext(interaction));
     } else if (id.startsWith('lfgapply_')) {
       await timed('BTN', id, who, () => apply.handleApplyButton(interaction));
     } else if (id.startsWith('lfgapprove_')) {

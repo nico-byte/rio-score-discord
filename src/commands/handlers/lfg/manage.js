@@ -3,7 +3,6 @@ const {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  StringSelectMenuBuilder,
   ChannelType,
   PermissionFlagsBits,
 } = require('discord.js');
@@ -23,7 +22,7 @@ const DUNGEON_ABBR = {
   'Pit of Saron':            'pos',
 };
 
-// ── Role-picker sessions: keyholder userId → { appId, selectedRole } ─────────
+// ── Role-picker sessions: keyholder userId → { selectedPair } ─────────────────
 const approvalSessions = new Map();
 
 // ── Helper: edit the mgmt card to show a resolved state ──────────────────────
@@ -45,14 +44,24 @@ async function editMgmtCard(msg, app, statusText) {
 }
 
 // ── Internal: creates invite channel, sends invite, notifies mgmt ─────────────
-async function doApprove(client, guild, appId, app, group, approvedRole) {
+async function doApprove(client, guild, appId, app, group, selectedPair) {
+  const { charId, role: approvedRole } = selectedPair ?? {};
+
   if (approvedRole) await db.setApplicationApprovedRole(appId, approvedRole);
 
   const botId = client.user.id;
 
-  const charRows   = await Promise.all(app.char_ids.map(id => db.getCharacterById(id)));
-  const validChars = charRows.filter(Boolean);
-  const charLines  = validChars.map(c => `• ${c.char_name} — ${c.realm} (${c.class ?? '?'} / ${c.spec ?? '?'} • ${c.rio_score ?? 0} IO)`).join('\n');
+  // Fetch the specifically approved character, fall back to first offered char
+  const approvedChar = charId
+    ? await db.getCharacterById(charId)
+    : null;
+  const char = approvedChar
+    ?? (app.char_roles?.[0] ? await db.getCharacterById(app.char_roles[0].charId) : null)
+    ?? (app.char_ids?.[0]   ? await db.getCharacterById(app.char_ids[0])           : null);
+
+  const charLine = char
+    ? `• ${char.char_name} — ${char.realm} (${char.class ?? '?'} / ${char.spec ?? '?'} • ${char.rio_score ?? 0} IO)`
+    : '—';
 
   let applicant;
   try { applicant = await guild.members.fetch(app.applicant_id); } catch { applicant = null; }
@@ -64,10 +73,10 @@ async function doApprove(client, guild, appId, app, group, approvedRole) {
     .setTitle(`Einladung: ${group.dungeon} +${group.key_level}`)
     .setAuthor({ name: applicant?.displayName ?? app.applicant_id, iconURL: applicant?.user.displayAvatarURL() })
     .addFields(
-      { name: 'Dungeon',     value: group.dungeon,        inline: true },
-      { name: 'Key Level',   value: `+${group.key_level}`, inline: true },
+      { name: 'Dungeon',    value: group.dungeon,          inline: true },
+      { name: 'Key Level',  value: `+${group.key_level}`,  inline: true },
       ...(approvedRole ? [{ name: 'Deine Rolle', value: ROLE_LABELS[approvedRole] ?? approvedRole, inline: true }] : []),
-      { name: 'Charaktere',  value: charLines || '—',      inline: false },
+      { name: 'Charakter',  value: charLine,               inline: false },
       ...(voiceChannel ? [{ name: 'Voice Channel', value: `${voiceChannel}`, inline: false }] : []),
     )
     .setFooter({ text: 'Annehmen oder Ablehnen — Annehmen bricht alle anderen Bewerbungen ab' })
@@ -157,20 +166,28 @@ async function handleApprove(interaction) {
     return interaction.reply({ content: '❌ Die Gruppe ist bereits voll.', ephemeral: true });
   }
 
-  // Read role from session (keyholder used the inline dropdown) or default to first offered
-  const rolesOffered = app.roles_offered ?? [];
-  const session      = sessionGet(approvalSessions, interaction.user.id);
-  const approvedRole = session?.selectedRole ?? rolesOffered[0] ?? null;
+  // Read selected pair from session (set by the inline dropdown) or default to first offered pair
+  const session   = sessionGet(approvalSessions, interaction.user.id);
+  const pairStr   = session?.selectedPair;
   sessionDelete(approvalSessions, interaction.user.id);
+
+  let selectedPair;
+  if (pairStr) {
+    const [charIdStr, role] = pairStr.split(':');
+    selectedPair = { charId: parseInt(charIdStr, 10), role };
+  } else {
+    const first = app.char_roles?.[0];
+    selectedPair = first ?? { charId: app.char_ids?.[0] ?? null, role: app.roles_offered?.[0] ?? null };
+  }
 
   await interaction.deferUpdate();
   await db.setApplicationStatus(appId, 'approved');
-  await doApprove(interaction.client, interaction.guild, appId, app, group, approvedRole);
+  await doApprove(interaction.client, interaction.guild, appId, app, group, selectedPair);
 }
 
 // ── Role picker: select update ────────────────────────────────────────────────
 async function handleApproveRoleSelect(interaction) {
-  sessionSet(approvalSessions, interaction.user.id, { selectedRole: interaction.values[0] });
+  sessionSet(approvalSessions, interaction.user.id, { selectedPair: interaction.values[0] });
   await interaction.deferUpdate();
 }
 

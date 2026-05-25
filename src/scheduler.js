@@ -44,7 +44,7 @@ async function runDailyRefresh(client) {
       continue;
     }
 
-    await db.updateScore(char.id, result.score, result.spec, result.cls);
+    await db.updateScore(char.id, result.score, result.spec, result.cls, result.scoreTank, result.scoreHealer, result.scoreDps, result.highestKey);
     updated++;
 
     // Only update Discord roles/nickname if this is the user's active character

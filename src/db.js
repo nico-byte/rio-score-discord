@@ -46,6 +46,11 @@ async function init() {
   await db.execute(`ALTER TABLE lfg_applications ADD COLUMN invite_channel_id TEXT`).catch(() => {});
   await db.execute(`ALTER TABLE lfg_applications ADD COLUMN roles_offered TEXT`).catch(() => {});
   await db.execute(`ALTER TABLE lfg_applications ADD COLUMN approved_role TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE lfg_applications ADD COLUMN char_roles TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE characters ADD COLUMN score_tank INTEGER DEFAULT 0`).catch(() => {});
+  await db.execute(`ALTER TABLE characters ADD COLUMN score_healer INTEGER DEFAULT 0`).catch(() => {});
+  await db.execute(`ALTER TABLE characters ADD COLUMN score_dps INTEGER DEFAULT 0`).catch(() => {});
+  await db.execute(`ALTER TABLE characters ADD COLUMN highest_key INTEGER DEFAULT 0`).catch(() => {});
   await db.execute(`
     CREATE TABLE IF NOT EXISTS lfg_applications (
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,10 +94,10 @@ async function upsertCharacter(discordId, charName, realm, region) {
   }
 }
 
-async function updateScore(id, score, spec, cls) {
+async function updateScore(id, score, spec, cls, scoreTank = 0, scoreHealer = 0, scoreDps = 0, highestKey = 0) {
   await db.execute({
-    sql: `UPDATE characters SET rio_score=?, spec=?, class=?, updated_at=? WHERE id=?`,
-    args: [score, spec, cls, Date.now(), id],
+    sql: `UPDATE characters SET rio_score=?, spec=?, class=?, score_tank=?, score_healer=?, score_dps=?, highest_key=?, updated_at=? WHERE id=?`,
+    args: [score, spec, cls, scoreTank, scoreHealer, scoreDps, highestKey, Date.now(), id],
   });
 }
 
@@ -261,10 +266,12 @@ async function getExpiredAnnouncements(olderThanMs) {
 
 // ── LFG applications ──────────────────────────────────────────────────────────
 
-async function createApplication({ lfgId, applicantId, charIds, rolesOffered }) {
+// charRoles: [{ charId, role }]
+async function createApplication({ lfgId, applicantId, charRoles }) {
+  const charIds = charRoles.map(p => p.charId);
   const res = await db.execute({
-    sql:  `INSERT INTO lfg_applications (lfg_id, applicant_id, char_ids, roles_offered, created_at) VALUES (?, ?, ?, ?, ?)`,
-    args: [lfgId, applicantId, JSON.stringify(charIds), JSON.stringify(rolesOffered ?? []), Date.now()],
+    sql:  `INSERT INTO lfg_applications (lfg_id, applicant_id, char_ids, roles_offered, char_roles, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    args: [lfgId, applicantId, JSON.stringify(charIds), JSON.stringify([]), JSON.stringify(charRoles), Date.now()],
   });
   return Number(res.lastInsertRowid);
 }
@@ -295,6 +302,7 @@ async function getOtherPendingApplications(applicantId, exceptAppId) {
     ...r,
     char_ids:      JSON.parse(r.char_ids),
     roles_offered: r.roles_offered ? JSON.parse(r.roles_offered) : [],
+    char_roles:    r.char_roles    ? JSON.parse(r.char_roles)    : null,
   }));
 }
 
@@ -306,6 +314,7 @@ async function getApplication(appId) {
     ...row,
     char_ids:      JSON.parse(row.char_ids),
     roles_offered: row.roles_offered ? JSON.parse(row.roles_offered) : [],
+    char_roles:    row.char_roles    ? JSON.parse(row.char_roles)    : null,
   };
 }
 
@@ -332,6 +341,7 @@ async function getLfgApplications(lfgId) {
     ...r,
     char_ids:      JSON.parse(r.char_ids),
     roles_offered: r.roles_offered ? JSON.parse(r.roles_offered) : [],
+    char_roles:    r.char_roles    ? JSON.parse(r.char_roles)    : null,
   }));
 }
 
