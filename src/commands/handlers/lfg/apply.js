@@ -37,6 +37,9 @@ function pairOptionDesc(char, role) {
   return `${char.class ?? '?'} / ${char.spec ?? '?'} • ${score.toLocaleString('de-DE')} IO${key ? ` • +${key}` : ''}`;
 }
 
+// Set APPLY_MAX_CHARS=1 in .env to restrict applicants to a single character
+const APPLY_MAX_CHARS = Math.min(Math.max(parseInt(process.env.APPLY_MAX_CHARS, 10) || 4, 1), 4);
+
 // ── In-memory: userId → { lfgId, preselectedRole, selectedCharIds, charRoles } ──
 const sessions = new Map();
 
@@ -90,12 +93,11 @@ async function handleApplyButton(interaction) {
     charRoles: {},
   });
 
-  // Max 4 chars so we can fit one role row per char + one button row (5 rows total)
   const charSelect = new StringSelectMenuBuilder()
     .setCustomId('lfgapply_chars')
-    .setPlaceholder('Welche Chars möchtest du anbieten?')
+    .setPlaceholder(APPLY_MAX_CHARS === 1 ? 'Welchen Char möchtest du anbieten?' : 'Welche Chars möchtest du anbieten?')
     .setMinValues(1)
-    .setMaxValues(Math.min(chars.length, 4))
+    .setMaxValues(Math.min(chars.length, APPLY_MAX_CHARS))
     .addOptions(chars.slice(0, 25).map(c => ({
       label:       `${c.char_name} — ${c.realm}`,
       description: `${c.class ?? '?'} • ${c.rio_score ?? 0} IO`,
@@ -103,7 +105,7 @@ async function handleApplyButton(interaction) {
     })));
 
   await interaction.reply({
-    content: `**Bewerbung für ${group.dungeon} +${group.key_level}**\nWähle deine Charaktere.`,
+    content: `**Bewerbung für ${group.dungeon} +${group.key_level}**\n${APPLY_MAX_CHARS === 1 ? 'Wähle deinen Charakter.' : 'Wähle deine Charaktere.'}`,
     components: [
       new ActionRowBuilder().addComponents(charSelect),
       new ActionRowBuilder().addComponents(
@@ -131,7 +133,7 @@ async function handleApplyNext(interaction) {
     return interaction.update({ content: '❌ Diese LFG-Gruppe ist nicht mehr offen.', components: [] });
   }
 
-  const charIds  = session.selectedCharIds.slice(0, 4);
+  const charIds  = session.selectedCharIds.slice(0, APPLY_MAX_CHARS);
   const charRows = await Promise.all(charIds.map(id => db.getCharacterById(id)));
   const chars    = charRows.filter(Boolean);
 
@@ -195,7 +197,7 @@ async function handleApplyConfirm(interaction) {
 
   await interaction.deferUpdate();
 
-  const charIds       = session.selectedCharIds.slice(0, 4);
+  const charIds       = session.selectedCharIds.slice(0, APPLY_MAX_CHARS);
   const charRolesPairs = charIds.map(charId => ({
     charId,
     role: session.charRoles[String(charId)] ?? null,
