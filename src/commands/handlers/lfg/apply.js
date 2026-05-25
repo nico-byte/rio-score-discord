@@ -10,6 +10,14 @@ const { sessionSet, sessionGet, sessionDelete, fetchChannel } = require('../../.
 
 const ROLE_LABELS = { tank: '🛡️ Tank', healer: '💚 Healer', dps: '⚔️ DPS' };
 
+// Channel-id → role, built lazily from env vars
+function channelRoleFromId(channelId) {
+  if (process.env.CHANNEL_TANK_LFG   === channelId) return 'tank';
+  if (process.env.CHANNEL_HEALER_LFG === channelId) return 'healer';
+  if (process.env.CHANNEL_DPS_LFG    === channelId) return 'dps';
+  return null;
+}
+
 // ── In-memory: userId → { lfgId, selectedCharIds, selectedRoles } ─────────────
 const sessions = new Map();
 
@@ -43,7 +51,12 @@ async function handleApplyButton(interaction) {
     });
   }
 
-  sessionSet(sessions, interaction.user.id, { lfgId, selectedCharIds: [], selectedRoles: [] });
+  const preselectedRole = channelRoleFromId(interaction.channelId);
+  sessionSet(sessions, interaction.user.id, {
+    lfgId,
+    selectedCharIds: [],
+    selectedRoles:   preselectedRole && group.roles_wanted.includes(preselectedRole) ? [preselectedRole] : [],
+  });
 
   const charSelect = new StringSelectMenuBuilder()
     .setCustomId('lfgapply_chars')
@@ -56,10 +69,11 @@ async function handleApplyButton(interaction) {
       value:       String(c.id),
     })));
 
-  // Only show roles the keyholder is looking for
+  // Only show roles the keyholder is looking for; pre-select based on source channel
   const roleOptions = group.roles_wanted.map(r => ({
-    label: ROLE_LABELS[r] ?? r,
-    value: r,
+    label:   ROLE_LABELS[r] ?? r,
+    value:   r,
+    default: r === preselectedRole,
   }));
 
   const roleSelect = new StringSelectMenuBuilder()
