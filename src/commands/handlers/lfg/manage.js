@@ -170,11 +170,7 @@ async function handleApprove(interaction) {
 
 // ── Role picker: select update ────────────────────────────────────────────────
 async function handleApproveRoleSelect(interaction) {
-  const session = sessionGet(approvalSessions, interaction.user.id);
-  if (!session) {
-    return interaction.update({ content: '❌ Sitzung abgelaufen.', components: [] });
-  }
-  session.selectedRole = interaction.values[0];
+  sessionSet(approvalSessions, interaction.user.id, { selectedRole: interaction.values[0] });
   await interaction.deferUpdate();
 }
 
