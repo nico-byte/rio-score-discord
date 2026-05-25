@@ -12,34 +12,30 @@ const { sessionSet, sessionGet, sessionDelete } = require('../../../utils');
 
 // ── Static data ───────────────────────────────────────────────────────────────
 const DUNGEONS = [
-  'Ara-Kara, City of Echoes',
-  'City of Threads',
-  'Grim Batol',
-  'The Dawnbreaker',
-  'Mists of Tirna Scithe',
-  'The Necrotic Wake',
-  'Siege of Boralus',
-  'Stonevault',
-  'Cinderbrew Meadery',
-  'Darkflame Cleft',
-  'Operation: Floodgate',
-  'Priory of the Sacred Flame',
-  'The MOTHERLODE!!',
-  'The Rookery',
-  'Operation: Mechagon - Workshop',
-  'Theater of Pain',
+  "Magister's Terrace",
+  'Maisara Caverns',
+  'Nexus Point Xenas',
+  'Windrunner Spire',
+  "Algeth'ar Academy",
+  'Seat of the Triumvirate',
+  'Skyreach',
+  'Pit of Saron',
 ];
 
 const KEY_LEVELS = Array.from({ length: 24 }, (_, i) => String(i + 2));
 
 const SCORE_OPTIONS = [
-  { label: 'Keine Anforderung',     value: 'none',     emoji: '⚪' },
+  { label: 'Keine Anforderung',    value: 'none',     emoji: '⚪' },
+  { label: 'Enjoyer 1.5k+',        value: 'enjoyer',  emoji: '⚫' },
+  { label: 'Weekly 2.5k+',         value: 'weekly',   emoji: '🟡' },
   { label: 'Pusher 3k+',           value: 'pusher',   emoji: '🟠' },
   { label: 'Extreme Pusher 3.5k+', value: 'extreme',  emoji: '🟤' },
   { label: 'Hardcore Pusher 4k+',  value: 'hardcore', emoji: '🟣' },
 ];
 const SCORE_LABELS = {
   none:     '⚪ Keine Anforderung',
+  enjoyer:  '⚫ Enjoyer 1.5k+',
+  weekly:   '🟡 Weekly 2.5k+',
   pusher:   '🟠 Pusher 3k+',
   extreme:  '🟤 Extreme Pusher 3.5k+',
   hardcore: '🟣 Hardcore Pusher 4k+',
