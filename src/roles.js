@@ -3,7 +3,7 @@ const TIERS = [
   { min: 3500, roleId: process.env.ROLE_EXTREME_PUSHER,  label: '🟤 Extreme Pusher 3k5+', color: 0xd35400 },
   { min: 3000, roleId: process.env.ROLE_PUSHER,          label: '🟠 Pusher 3k+',           color: 0xe67e22 },
   { min: 2500, roleId: process.env.ROLE_WEEKLY,          label: '🟡 Weekly 2k5+',          color: 0xf1c40f },
-  { min: 1500, roleId: process.env.ROLE_EBNNJOYER,       label: '⚫ Enjoyer 1k5+',         color: 0x7f8c8d },
+  { min: 1500, roleId: process.env.ROLE_ENJOYER,         label: '⚫ Enjoyer 1k5+',         color: 0x7f8c8d },
   { min: 0,    roleId: process.env.ROLE_ROOKIE,          label: '⚪ Rookie <1k5',          color: 0x95a5a6 },
 ];
 

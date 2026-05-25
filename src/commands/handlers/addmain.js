@@ -1,10 +1,16 @@
-const { EmbedBuilder }          = require('discord.js');
-const db                        = require('../../db');
-const { fetchRioScore }         = require('../../rioApi');
-const { applyRolesFromActive }  = require('../../roles');
+const { EmbedBuilder }                    = require('discord.js');
+const db                                  = require('../../db');
+const { fetchRioScore }                   = require('../../rioApi');
+const { applyRolesFromActive }            = require('../../roles');
+const { checkRioRateLimit }               = require('../../utils');
 
 async function execute(interaction) {
   await interaction.deferReply({ ephemeral: true });
+
+  const remaining = checkRioRateLimit(interaction.user.id);
+  if (remaining > 0) {
+    return interaction.editReply(`❌ Bitte warte noch **${remaining} Sekunden**, bevor du erneut einen Charakter aktualisierst.`);
+  }
 
   const inputName = interaction.options.getString('name').trim().toLowerCase();
   const realm     = interaction.options.getString('realm').trim().replace(/\s+/g, '-').toLowerCase();

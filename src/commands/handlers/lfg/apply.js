@@ -57,6 +57,16 @@ async function handleApplyButton(interaction) {
     return interaction.reply({ content: '❌ Du hast dich bereits für diese LFG beworben.', ephemeral: true });
   }
 
+  const rejected = await db.hasRejectedApplication(lfgId, interaction.user.id);
+  if (rejected) {
+    return interaction.reply({ content: '❌ Du wurdest von dieser Gruppe bereits abgelehnt.', ephemeral: true });
+  }
+
+  const pendingCount = await db.countPendingApplications(interaction.user.id);
+  if (pendingCount >= 3) {
+    return interaction.reply({ content: '❌ Du hast bereits 3 offene Bewerbungen. Warte, bis eine davon bearbeitet wird.', ephemeral: true });
+  }
+
   const spotsLeft = await db.getLfgSpotsLeft(lfgId);
   if (spotsLeft <= 0) {
     return interaction.reply({ content: '❌ Diese Gruppe ist bereits voll.', ephemeral: true });

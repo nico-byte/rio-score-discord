@@ -34,7 +34,7 @@ async function fetchRioScore(name, realm, region) {
       spec:        data.active_spec_name ?? 'Unbekannt',
       cls:         data.class            ?? 'Unbekannt',
       thumbnail:   data.thumbnail_url,
-      profileUrl:  `https://raider.io/characters/${region}/${realm}/${name}`,
+      profileUrl:  `https://raider.io/characters/${region}/${data.realm}/${data.name}`,
     };
   } catch (err) {
     return { error: `Verbindung zu Raider.IO fehlgeschlagen: ${err.message}` };

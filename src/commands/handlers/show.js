@@ -7,6 +7,20 @@ const {
 const db                       = require('../../db');
 const { applyRolesFromActive } = require('../../roles');
 
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+const _showTimestamps = new Map();
+const SHOW_COOLDOWN_MS = 5_000;
+
+function checkShowRateLimit(userId) {
+  const last = _showTimestamps.get(userId);
+  const now  = Date.now();
+  if (last && now - last < SHOW_COOLDOWN_MS) {
+    return Math.ceil((SHOW_COOLDOWN_MS - (now - last)) / 1000);
+  }
+  _showTimestamps.set(userId, now);
+  return 0;
+}
+
 // ── Timeout tracking ──────────────────────────────────────────────────────────
 const activeTimeouts = new Map();
 const TIMEOUT_MS = 3 * 60 * 1000;
@@ -32,6 +46,12 @@ function resetTimeout(userId, interaction) {
 // ── Entry point ───────────────────────────────────────────────────────────────
 async function execute(interaction) {
   await interaction.deferReply({ ephemeral: true });
+
+  const remaining = checkShowRateLimit(interaction.user.id);
+  if (remaining > 0) {
+    return interaction.editReply(`❌ Bitte warte noch **${remaining} Sekunde${remaining === 1 ? '' : 'n'}**, bevor du erneut /rio show nutzt.`);
+  }
+
   await showSheet(interaction, 0);
 }
 

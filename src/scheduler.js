@@ -1,6 +1,6 @@
 const db              = require('./db');
 const { fetchRioScore } = require('./rioApi');
-const { applyRoles }  = require('./roles');
+const { applyRolesFromActive } = require('./roles');
 
 /**
  * Starts the daily refresh scheduler.
@@ -47,13 +47,15 @@ async function runDailyRefresh(client) {
     await db.updateScore(char.id, result.score, result.spec, result.cls, result.scoreTank, result.scoreHealer, result.scoreDps, result.highestKey);
     updated++;
 
-    // Only update Discord roles/nickname if this is the user's active character
+    // Only update Discord roles if this is an active character
     if (char.is_active) {
       try {
         const guild  = await client.guilds.fetch(process.env.GUILD_ID);
         const member = await guild.members.fetch(char.discord_id).catch(() => null);
         if (member) {
-          await applyRoles(member, result.score, result.cls, char.char_name);
+          // Use all active chars so users with multiple active chars keep all class roles
+          const allActive = await db.getActiveCharacters(char.discord_id);
+          await applyRolesFromActive(member, allActive.length ? allActive : [char]);
         }
       } catch (err) {
         console.warn(`   ⚠ Could not update Discord for ${char.discord_id}: ${err.message}`);

@@ -41,28 +41,33 @@ async function init() {
       created_at        INTEGER NOT NULL DEFAULT 0
     )
   `);
-  // Migrations: add columns to existing tables
+  // Migrations: add columns to existing tables (characters and lfg_groups exist above)
   await db.execute(`ALTER TABLE lfg_groups ADD COLUMN voice_channel_id TEXT`).catch(() => {});
-  await db.execute(`ALTER TABLE lfg_applications ADD COLUMN invite_channel_id TEXT`).catch(() => {});
-  await db.execute(`ALTER TABLE lfg_applications ADD COLUMN roles_offered TEXT`).catch(() => {});
-  await db.execute(`ALTER TABLE lfg_applications ADD COLUMN approved_role TEXT`).catch(() => {});
-  await db.execute(`ALTER TABLE lfg_applications ADD COLUMN char_roles TEXT`).catch(() => {});
   await db.execute(`ALTER TABLE characters ADD COLUMN score_tank INTEGER DEFAULT 0`).catch(() => {});
   await db.execute(`ALTER TABLE characters ADD COLUMN score_healer INTEGER DEFAULT 0`).catch(() => {});
   await db.execute(`ALTER TABLE characters ADD COLUMN score_dps INTEGER DEFAULT 0`).catch(() => {});
   await db.execute(`ALTER TABLE characters ADD COLUMN highest_key INTEGER DEFAULT 0`).catch(() => {});
   await db.execute(`
     CREATE TABLE IF NOT EXISTS lfg_applications (
-      id               INTEGER PRIMARY KEY AUTOINCREMENT,
-      lfg_id           INTEGER NOT NULL,
-      applicant_id     TEXT    NOT NULL,
-      char_ids         TEXT    NOT NULL,
-      status           TEXT    NOT NULL DEFAULT 'pending',
-      mgmt_message_id  TEXT,
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      lfg_id            INTEGER NOT NULL,
+      applicant_id      TEXT    NOT NULL,
+      char_ids          TEXT    NOT NULL,
+      status            TEXT    NOT NULL DEFAULT 'pending',
+      mgmt_message_id   TEXT,
       invite_message_id TEXT,
-      created_at       INTEGER NOT NULL DEFAULT 0
+      invite_channel_id TEXT,
+      roles_offered     TEXT,
+      approved_role     TEXT,
+      char_roles        TEXT,
+      created_at        INTEGER NOT NULL DEFAULT 0
     )
   `);
+  // Migrations for lfg_applications (no-ops on fresh DBs which already have these columns)
+  await db.execute(`ALTER TABLE lfg_applications ADD COLUMN invite_channel_id TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE lfg_applications ADD COLUMN roles_offered TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE lfg_applications ADD COLUMN approved_role TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE lfg_applications ADD COLUMN char_roles TEXT`).catch(() => {});
   await db.execute(`
     CREATE TABLE IF NOT EXISTS lfg_announcements (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -213,6 +218,14 @@ async function getLfgGroup(lfgId) {
   return { ...row, roles_wanted: JSON.parse(row.roles_wanted) };
 }
 
+async function getOpenLfgByCreator(creatorId) {
+  const res = await db.execute({
+    sql:  `SELECT id FROM lfg_groups WHERE creator_id=? AND status='open' LIMIT 1`,
+    args: [creatorId],
+  });
+  return res.rows[0] ?? null;
+}
+
 async function closeLfgGroup(lfgId) {
   await db.execute({ sql: `UPDATE lfg_groups SET status='closed' WHERE id=?`, args: [lfgId] });
 }
@@ -354,15 +367,40 @@ async function getExistingApplication(lfgId, applicantId) {
   return res.rows[0] ?? null;
 }
 
+// Atomically claim a pending application — returns true only if this caller won the race
+async function claimApplicationPending(appId) {
+  const res = await db.execute({
+    sql:  `UPDATE lfg_applications SET status='approved' WHERE id=? AND status='pending'`,
+    args: [appId],
+  });
+  return Number(res.rowsAffected) > 0;
+}
+
+async function hasRejectedApplication(lfgId, applicantId) {
+  const res = await db.execute({
+    sql:  `SELECT id FROM lfg_applications WHERE lfg_id=? AND applicant_id=? AND status='rejected' LIMIT 1`,
+    args: [lfgId, applicantId],
+  });
+  return res.rows.length > 0;
+}
+
+async function countPendingApplications(applicantId) {
+  const res = await db.execute({
+    sql:  `SELECT COUNT(*) as cnt FROM lfg_applications WHERE applicant_id=? AND status IN ('pending','approved')`,
+    args: [applicantId],
+  });
+  return Number(res.rows[0].cnt);
+}
+
 module.exports = {
   init,
   upsertCharacter, updateScore, setActive, setInactive, setOnlyActive, removeCharacter,
   getCharacters, getActiveCharacters, getActiveCharacter, getCharacterById, getStaleCharacters, getStaleOpenLfgGroups,
   // LFG
-  createLfgGroup, setLfgMgmtChannel, setLfgVoiceChannel, getLfgGroup, getLfgGroupByVoiceChannel, closeLfgGroup, getLfgSpotsLeft,
+  createLfgGroup, setLfgMgmtChannel, setLfgVoiceChannel, getLfgGroup, getLfgGroupByVoiceChannel, getOpenLfgByCreator, closeLfgGroup, getLfgSpotsLeft,
   addLfgAnnouncement, getLfgAnnouncements, deleteLfgAnnouncements, deleteLfgAnnouncement, getExpiredAnnouncements,
   createApplication, setApplicationMgmtMsg, setApplicationInviteMsg, setApplicationInviteChannel,
   setApplicationApprovedRole,
   getApplication, setApplicationStatus, cancelOtherApplications, getOtherPendingApplications,
-  getLfgApplications, getExistingApplication,
+  getLfgApplications, getExistingApplication, hasRejectedApplication, countPendingApplications, claimApplicationPending,
 };

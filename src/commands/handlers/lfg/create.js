@@ -176,6 +176,11 @@ async function handleConfirm(interaction) {
     return interaction.followUp({ content: '❌ Bitte wähle mindestens eine gesuchte Rolle aus.', ephemeral: true });
   }
 
+  const existingGroup = await db.getOpenLfgByCreator(interaction.user.id);
+  if (existingGroup) {
+    return interaction.followUp({ content: '❌ Du hast bereits eine offene LFG-Gruppe. Beende sie zuerst, bevor du eine neue erstellst.', ephemeral: true });
+  }
+
   sessionDelete(sessions, interaction.user.id);
 
   const { dungeon, keyLevel, characterId, roles, scoreReq } = session;
@@ -238,7 +243,12 @@ async function handleConfirm(interaction) {
   if (mgmtResult.status === 'rejected') {
     console.error('Failed to create mgmt channel:', mgmtResult.reason);
     if (voiceResult.status === 'fulfilled') voiceResult.value.delete().catch(() => {});
-    return interaction.editReply({ content: '❌ Fehler beim Erstellen des Management-Channels. Prüfe Bot-Berechtigungen.', components: [] });
+    await db.closeLfgGroup(lfgId);
+    const err = mgmtResult.reason;
+    const msg = err?.code === 30013
+      ? '❌ Discord-Channellimit erreicht. Lösche nicht mehr benötigte Channels und versuche es erneut.'
+      : '❌ Fehler beim Erstellen des Management-Channels. Prüfe Bot-Berechtigungen.';
+    return interaction.editReply({ content: msg, components: [] });
   }
 
   const mgmtChannel  = mgmtResult.value;

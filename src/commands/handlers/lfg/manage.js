@@ -87,6 +87,7 @@ async function doApprove(client, guild, appId, app, group, selectedPair) {
   const safeName = `invite-${abbr}-${group.key_level}`;
 
   let inviteChannel;
+  let channelErr;
   try {
     inviteChannel = await guild.channels.create({
       name:   safeName,
@@ -100,6 +101,7 @@ async function doApprove(client, guild, appId, app, group, selectedPair) {
     });
     await inviteChannel.setPosition(0).catch(() => {});
   } catch (err) {
+    channelErr = err;
     console.error('Failed to create invite channel:', err);
   }
 
@@ -109,7 +111,11 @@ async function doApprove(client, guild, appId, app, group, selectedPair) {
     : null;
 
   if (!inviteChannel) {
-    if (mgmtMsg) await editMgmtCard(mgmtMsg, app, '✅ Angenommen — Channel-Erstellung fehlgeschlagen');
+    const notice = channelErr?.code === 30013
+      ? '❌ Discord-Channellimit erreicht. Lösche nicht mehr benötigte Channels und versuche es erneut.'
+      : '❌ Invite-Channel konnte nicht erstellt werden. Prüfe Bot-Berechtigungen.';
+    if (mgmtCh) await mgmtCh.send(notice).catch(() => {});
+    if (mgmtMsg) await editMgmtCard(mgmtMsg, app, '✅ Angenommen — Channel-Fehler');
     return;
   }
 
@@ -181,7 +187,10 @@ async function handleApprove(interaction) {
   }
 
   await interaction.deferUpdate();
-  await db.setApplicationStatus(appId, 'approved');
+  const claimed = await db.claimApplicationPending(appId);
+  if (!claimed) {
+    return interaction.followUp({ content: '❌ Diese Bewerbung wird bereits bearbeitet.', ephemeral: true });
+  }
   await doApprove(interaction.client, interaction.guild, appId, app, group, selectedPair);
 }
 
