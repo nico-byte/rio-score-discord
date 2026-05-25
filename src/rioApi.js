@@ -21,6 +21,7 @@ async function fetchRioScore(name, realm, region) {
 
     return {
       name:       data.name,
+      realm:      data.realm,
       score:      Math.round(data?.mythic_plus_scores_by_season?.[0]?.scores?.all ?? 0),
       spec:       data.active_spec_name ?? 'Unbekannt',
       cls:        data.class            ?? 'Unbekannt',

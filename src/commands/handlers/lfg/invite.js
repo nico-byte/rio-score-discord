@@ -1,8 +1,3 @@
-const {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-} = require('discord.js');
 const db = require('../../../db');
 const { fetchChannel } = require('../../../utils');
 
@@ -25,7 +20,8 @@ async function handleAccept(interaction) {
 
   await db.setApplicationStatus(appId, 'accepted');
 
-  // Cancel all other pending/approved applications for this player
+  // Fetch other pending/approved applications before cancelling so we can clean up their invite channels
+  const otherApps = await db.getOtherPendingApplications(interaction.user.id, appId);
   await db.cancelOtherApplications(interaction.user.id, appId);
 
   // Give applicant view access to the mgmt channel so they can coordinate
@@ -57,20 +53,19 @@ async function handleAccept(interaction) {
     }
   }
 
-  // Edit invite message to remove buttons
+  // Edit invite message to remove buttons, then delete the invite channel after a short delay
   await interaction.message.edit({
-    content:    `✅ <@${interaction.user.id}> hat die Einladung angenommen!`,
+    content:    `✅ Du hast die Einladung zu **${group?.dungeon} +${group?.key_level}** angenommen!`,
     components: [],
   }).catch(() => {});
 
-  // Silently update/cancel other invite messages for this user's cancelled applications
-  const inviteChannel = await fetchChannel(guild, process.env.CHANNEL_PENDING_INVITES);
-  if (inviteChannel) {
-    // We can't efficiently query all cancelled apps here, but cancelOtherApplications
-    // already updated the DB. The invite messages will just show stale buttons until
-    // the user tries to click them (handleAccept/Decline will reject with "not valid").
-    // For a cleaner UX, we'd need to fetch them — but that requires extra DB lookups.
-    // Acceptable trade-off for now.
+  setTimeout(() => interaction.channel?.delete().catch(() => {}), 5_000);
+
+  // Delete invite channels for all other cancelled applications
+  for (const other of otherApps) {
+    if (!other.invite_channel_id) continue;
+    const ch = await fetchChannel(guild, other.invite_channel_id);
+    if (ch) await ch.delete().catch(() => {});
   }
 }
 
@@ -104,9 +99,11 @@ async function handleDecline(interaction) {
   }
 
   await interaction.message.edit({
-    content:    `❌ Du hast die Einladung abgelehnt.`,
+    content:    `❌ Du hast die Einladung zu **${group?.dungeon} +${group?.key_level}** abgelehnt.`,
     components: [],
   }).catch(() => {});
+
+  setTimeout(() => interaction.channel?.delete().catch(() => {}), 5_000);
 }
 
 module.exports = { handleAccept, handleDecline };

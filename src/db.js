@@ -41,8 +41,9 @@ async function init() {
       created_at        INTEGER NOT NULL DEFAULT 0
     )
   `);
-  // Migration: add voice_channel_id to existing tables
+  // Migrations: add columns to existing tables
   await db.execute(`ALTER TABLE lfg_groups ADD COLUMN voice_channel_id TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE lfg_applications ADD COLUMN invite_channel_id TEXT`).catch(() => {});
   await db.execute(`
     CREATE TABLE IF NOT EXISTS lfg_applications (
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,18 +71,18 @@ async function upsertCharacter(discordId, charName, realm, region) {
   const realmLow  = realm.toLowerCase();
   const regionLow = region.toLowerCase();
   const existing  = await db.execute({
-    sql:  `SELECT id FROM characters WHERE discord_id=? AND LOWER(char_name)=? AND realm=? AND region=?`,
+    sql:  `SELECT id FROM characters WHERE discord_id=? AND LOWER(char_name)=? AND LOWER(realm)=? AND region=?`,
     args: [discordId, charName.toLowerCase(), realmLow, regionLow],
   });
   if (existing.rows.length > 0) {
     await db.execute({
-      sql:  `UPDATE characters SET char_name=? WHERE id=?`,
-      args: [charName, existing.rows[0].id],
+      sql:  `UPDATE characters SET char_name=?, realm=? WHERE id=?`,
+      args: [charName, realm, existing.rows[0].id],
     });
   } else {
     await db.execute({
       sql:  `INSERT INTO characters (discord_id, char_name, realm, region) VALUES (?, ?, ?, ?)`,
-      args: [discordId, charName, realmLow, regionLow],
+      args: [discordId, charName, realm, regionLow],
     });
   }
 }
@@ -274,6 +275,19 @@ async function setApplicationInviteMsg(appId, msgId) {
   await db.execute({ sql: `UPDATE lfg_applications SET invite_message_id=? WHERE id=?`, args: [msgId, appId] });
 }
 
+async function setApplicationInviteChannel(appId, channelId) {
+  await db.execute({ sql: `UPDATE lfg_applications SET invite_channel_id=? WHERE id=?`, args: [channelId, appId] });
+}
+
+// Returns other pending/approved applications for a user (used to clean up invite channels before cancelling)
+async function getOtherPendingApplications(applicantId, exceptAppId) {
+  const res = await db.execute({
+    sql:  `SELECT * FROM lfg_applications WHERE applicant_id=? AND id != ? AND status IN ('pending','approved')`,
+    args: [applicantId, exceptAppId],
+  });
+  return res.rows.map(r => ({ ...r, char_ids: JSON.parse(r.char_ids) }));
+}
+
 async function getApplication(appId) {
   const res = await db.execute({ sql: `SELECT * FROM lfg_applications WHERE id=?`, args: [appId] });
   const row = res.rows[0];
@@ -319,7 +333,7 @@ module.exports = {
   // LFG
   createLfgGroup, setLfgMgmtChannel, setLfgVoiceChannel, getLfgGroup, getLfgGroupByVoiceChannel, closeLfgGroup, getLfgSpotsLeft,
   addLfgAnnouncement, getLfgAnnouncements, deleteLfgAnnouncements, deleteLfgAnnouncement, getExpiredAnnouncements,
-  createApplication, setApplicationMgmtMsg, setApplicationInviteMsg,
-  getApplication, setApplicationStatus, cancelOtherApplications,
+  createApplication, setApplicationMgmtMsg, setApplicationInviteMsg, setApplicationInviteChannel,
+  getApplication, setApplicationStatus, cancelOtherApplications, getOtherPendingApplications,
   getLfgApplications, getExistingApplication,
 };

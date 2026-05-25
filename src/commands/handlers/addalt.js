@@ -13,18 +13,18 @@ async function execute(interaction) {
   const result = await fetchRioScore(inputName, realm, region);
   if (result.error) return interaction.editReply(`❌ ${result.error}`);
 
-  const { name, score, spec, cls, thumbnail, profileUrl } = result;
+  const { name, realm: properRealm, score, spec, cls, thumbnail, profileUrl } = result;
 
-  await db.upsertCharacter(interaction.user.id, name, realm, region);
+  await db.upsertCharacter(interaction.user.id, name, properRealm, region);
   const chars = await db.getCharacters(interaction.user.id);
-  const char  = chars.find(c => c.char_name.toLowerCase() === name.toLowerCase() && c.realm === realm && c.region === region);
+  const char  = chars.find(c => c.char_name.toLowerCase() === name.toLowerCase() && c.realm.toLowerCase() === properRealm.toLowerCase() && c.region === region);
   await db.updateScore(char.id, score, spec, cls);
 
   const tier = TIERS.find(t => score >= t.min) ?? TIERS[TIERS.length - 1];
 
   const embed = new EmbedBuilder()
     .setColor(tier.color)
-    .setAuthor({ name: `${name} — ${realm} (${region.toUpperCase()})`, iconURL: thumbnail })
+    .setAuthor({ name: `${name} — ${properRealm} (${region.toUpperCase()})`, iconURL: thumbnail })
     .setTitle('Twink hinzugefügt ✅')
     .setURL(profileUrl)
     .addFields(

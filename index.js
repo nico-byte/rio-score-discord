@@ -136,6 +136,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
   const group = await db.getLfgGroupByVoiceChannel(leftChannel.id).catch(() => null);
   if (!group) return;
+  if (group.status === 'open') return; // Keep VC alive while the key is still being filled
 
   console.log(`[${ts()}] [VC] Auto-deleting empty LFG voice channel ${leftChannel.id} (LFG ${group.id})`);
   await leftChannel.delete().catch(() => {});

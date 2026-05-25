@@ -3,9 +3,22 @@ const {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  ChannelType,
+  PermissionFlagsBits,
 } = require('discord.js');
 const db = require('../../../db');
 const { fetchChannel } = require('../../../utils');
+
+const DUNGEON_ABBR = {
+  "Magister's Terrace":      'mt',
+  'Maisara Caverns':         'mc',
+  'Nexus Point Xenas':       'npx',
+  'Windrunner Spire':        'ws',
+  "Algeth'ar Academy":       'aa',
+  'Seat of the Triumvirate': 'seat',
+  'Skyreach':                'sr',
+  'Pit of Saron':            'pos',
+};
 
 // ── Approve application ───────────────────────────────────────────────────────
 async function handleApprove(interaction) {
@@ -35,23 +48,15 @@ async function handleApprove(interaction) {
   await interaction.deferUpdate();
   await db.setApplicationStatus(appId, 'approved');
 
-  // Post invite in #pending-invites
-  const guild          = interaction.guild;
-  const inviteChannelId = process.env.CHANNEL_PENDING_INVITES;
-  const inviteChannel  = inviteChannelId ? await fetchChannel(guild, inviteChannelId) : null;
-
-  if (!inviteChannel) {
-    console.warn('CHANNEL_PENDING_INVITES not configured or not found');
-    await editMgmtCard(interaction, app, '✅ Angenommen — Invite-Channel nicht konfiguriert');
-    return;
-  }
+  const guild = interaction.guild;
+  const botId = interaction.client.user.id;
 
   // Fetch chars for the invite message
-  const charRows  = await Promise.all(app.char_ids.map(id => db.getCharacterById(id)));
+  const charRows   = await Promise.all(app.char_ids.map(id => db.getCharacterById(id)));
   const validChars = charRows.filter(Boolean);
   const charLines  = validChars.map(c => `• ${c.char_name} — ${c.realm} (${c.class ?? '?'} / ${c.spec ?? '?'} • ${c.rio_score ?? 0} IO)`).join('\n');
 
-  // Fetch applicant user
+  // Fetch applicant member (for display name / avatar)
   let applicant;
   try { applicant = await guild.members.fetch(app.applicant_id); } catch { applicant = null; }
 
@@ -70,10 +75,35 @@ async function handleApprove(interaction) {
     .setFooter({ text: 'Annehmen oder Ablehnen — Annehmen bricht alle anderen Bewerbungen ab' })
     .setTimestamp();
 
+  // Create a temporary private channel visible only to this applicant
+  const abbr     = DUNGEON_ABBR[group.dungeon] ?? group.dungeon.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 10);
+  const safeName = `invite-${abbr}-${group.key_level}`;
+
+  let inviteChannel;
+  try {
+    inviteChannel = await guild.channels.create({
+      name:   safeName,
+      type:   ChannelType.GuildText,
+      parent: process.env.LFG_CATEGORY_ID ?? null,
+      permissionOverwrites: [
+        { id: guild.id,           deny:  [PermissionFlagsBits.ViewChannel] },
+        { id: botId,              allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.ManageChannels] },
+        { id: app.applicant_id,  allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] },
+      ],
+    });
+  } catch (err) {
+    console.error('Failed to create invite channel:', err);
+  }
+
+  if (!inviteChannel) {
+    await editMgmtCard(interaction, app, '✅ Angenommen — Channel-Erstellung fehlgeschlagen');
+    return;
+  }
+
   let inviteMsg;
   try {
     inviteMsg = await inviteChannel.send({
-      content:    `<@${app.applicant_id}> Du wurdest eingeladen!`,
+      content:    `<@${app.applicant_id}> Du wurdest zu **${group.dungeon} +${group.key_level}** eingeladen!`,
       embeds:     [inviteEmbed],
       components: [
         new ActionRowBuilder().addComponents(
@@ -90,9 +120,19 @@ async function handleApprove(interaction) {
     });
   } catch (err) {
     console.error('Failed to post invite:', err);
+    await inviteChannel.delete().catch(() => {});
   }
 
-  if (inviteMsg) await db.setApplicationInviteMsg(appId, inviteMsg.id);
+  await Promise.all([
+    inviteMsg ? db.setApplicationInviteMsg(appId, inviteMsg.id) : Promise.resolve(),
+    db.setApplicationInviteChannel(appId, inviteChannel.id),
+  ]);
+
+  // Notify keyholder in mgmt channel
+  const mgmtChannel = group.mgmt_channel_id ? await fetchChannel(guild, group.mgmt_channel_id) : null;
+  if (mgmtChannel) {
+    await mgmtChannel.send(`✅ Einladung an <@${app.applicant_id}> gesendet → ${inviteChannel}`).catch(() => {});
+  }
 
   await editMgmtCard(interaction, app, '✅ Angenommen — Invite gesendet');
 }
@@ -117,16 +157,10 @@ async function handleReject(interaction) {
   await interaction.deferUpdate();
   await db.setApplicationStatus(appId, 'rejected');
 
-  // If there was an invite message, remove the buttons from it
-  if (app.invite_message_id) {
-    const guild          = interaction.guild;
-    const inviteChannel  = await fetchChannel(guild, process.env.CHANNEL_PENDING_INVITES);
-    if (inviteChannel) {
-      try {
-        const inviteMsg = await inviteChannel.messages.fetch(app.invite_message_id);
-        await inviteMsg.edit({ content: `<@${app.applicant_id}> Deine Einladung wurde zurückgezogen.`, components: [] });
-      } catch { /* message may already be gone */ }
-    }
+  // Delete the temp invite channel if it exists
+  if (app.invite_channel_id) {
+    const inviteCh = await fetchChannel(interaction.guild, app.invite_channel_id);
+    if (inviteCh) await inviteCh.delete().catch(() => {});
   }
 
   await editMgmtCard(interaction, app, '❌ Abgelehnt');
@@ -160,20 +194,14 @@ async function handleStart(interaction) {
   }
   await db.deleteLfgAnnouncements(lfgId);
 
-  // Cancel remaining pending/approved applications and update their invite messages
+  // Cancel remaining pending/approved applications and delete their invite channels
   const apps = await db.getLfgApplications(lfgId);
-  const inviteChannel = await fetchChannel(guild, process.env.CHANNEL_PENDING_INVITES);
-
   for (const app of apps) {
-    if (['pending', 'approved'].includes(app.status)) {
-      await db.setApplicationStatus(app.id, 'cancelled');
-
-      if (app.invite_message_id && inviteChannel) {
-        try {
-          const inviteMsg = await inviteChannel.messages.fetch(app.invite_message_id);
-          await inviteMsg.edit({ content: `<@${app.applicant_id}> Der Key wurde gestartet — die LFG ist geschlossen.`, components: [] });
-        } catch { /* already gone */ }
-      }
+    if (!['pending', 'approved'].includes(app.status)) continue;
+    await db.setApplicationStatus(app.id, 'cancelled');
+    if (app.invite_channel_id) {
+      const inviteCh = await fetchChannel(guild, app.invite_channel_id);
+      if (inviteCh) await inviteCh.delete().catch(() => {});
     }
   }
 
@@ -213,20 +241,14 @@ async function handleClose(interaction) {
   }
   await db.deleteLfgAnnouncements(lfgId);
 
-  // Cancel all pending/approved applications and update mgmt cards + invite messages
+  // Cancel all pending/approved applications and delete their invite channels
   const apps = await db.getLfgApplications(lfgId);
-  const inviteChannel = await fetchChannel(guild, process.env.CHANNEL_PENDING_INVITES);
-
   for (const app of apps) {
-    if (['pending', 'approved'].includes(app.status)) {
-      await db.setApplicationStatus(app.id, 'cancelled');
-
-      if (app.invite_message_id && inviteChannel) {
-        try {
-          const inviteMsg = await inviteChannel.messages.fetch(app.invite_message_id);
-          await inviteMsg.edit({ content: `<@${app.applicant_id}> Die LFG wurde vom Keyholder beendet.`, components: [] });
-        } catch { /* already gone */ }
-      }
+    if (!['pending', 'approved'].includes(app.status)) continue;
+    await db.setApplicationStatus(app.id, 'cancelled');
+    if (app.invite_channel_id) {
+      const inviteCh = await fetchChannel(guild, app.invite_channel_id);
+      if (inviteCh) await inviteCh.delete().catch(() => {});
     }
   }
 

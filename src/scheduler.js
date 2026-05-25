@@ -108,17 +108,15 @@ async function runLfgCleanup(client) {
     }
     await db.deleteLfgAnnouncements(group.id);
 
-    // Cancel pending/approved applications
+    // Cancel pending/approved applications and delete their invite channels
     const apps = await db.getLfgApplications(group.id);
-    const inviteChannel = guild.channels.cache.get(process.env.CHANNEL_PENDING_INVITES);
     for (const app of apps) {
       if (!['pending', 'approved'].includes(app.status)) continue;
       await db.setApplicationStatus(app.id, 'cancelled');
-      if (app.invite_message_id && inviteChannel) {
-        try {
-          const msg = await inviteChannel.messages.fetch(app.invite_message_id);
-          await msg.edit({ content: `<@${app.applicant_id}> Die LFG ist abgelaufen und wurde automatisch geschlossen.`, components: [] });
-        } catch { /* already gone */ }
+      if (app.invite_channel_id) {
+        const inviteCh = guild.channels.cache.get(app.invite_channel_id)
+          ?? await guild.channels.fetch(app.invite_channel_id).catch(() => null);
+        if (inviteCh) await inviteCh.delete().catch(() => {});
       }
     }
 
