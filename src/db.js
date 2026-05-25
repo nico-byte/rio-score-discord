@@ -44,6 +44,8 @@ async function init() {
   // Migrations: add columns to existing tables
   await db.execute(`ALTER TABLE lfg_groups ADD COLUMN voice_channel_id TEXT`).catch(() => {});
   await db.execute(`ALTER TABLE lfg_applications ADD COLUMN invite_channel_id TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE lfg_applications ADD COLUMN roles_offered TEXT`).catch(() => {});
+  await db.execute(`ALTER TABLE lfg_applications ADD COLUMN approved_role TEXT`).catch(() => {});
   await db.execute(`
     CREATE TABLE IF NOT EXISTS lfg_applications (
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -259,12 +261,16 @@ async function getExpiredAnnouncements(olderThanMs) {
 
 // ── LFG applications ──────────────────────────────────────────────────────────
 
-async function createApplication({ lfgId, applicantId, charIds }) {
+async function createApplication({ lfgId, applicantId, charIds, rolesOffered }) {
   const res = await db.execute({
-    sql:  `INSERT INTO lfg_applications (lfg_id, applicant_id, char_ids, created_at) VALUES (?, ?, ?, ?)`,
-    args: [lfgId, applicantId, JSON.stringify(charIds), Date.now()],
+    sql:  `INSERT INTO lfg_applications (lfg_id, applicant_id, char_ids, roles_offered, created_at) VALUES (?, ?, ?, ?, ?)`,
+    args: [lfgId, applicantId, JSON.stringify(charIds), JSON.stringify(rolesOffered ?? []), Date.now()],
   });
   return Number(res.lastInsertRowid);
+}
+
+async function setApplicationApprovedRole(appId, role) {
+  await db.execute({ sql: `UPDATE lfg_applications SET approved_role=? WHERE id=?`, args: [role, appId] });
 }
 
 async function setApplicationMgmtMsg(appId, msgId) {
@@ -285,14 +291,22 @@ async function getOtherPendingApplications(applicantId, exceptAppId) {
     sql:  `SELECT * FROM lfg_applications WHERE applicant_id=? AND id != ? AND status IN ('pending','approved')`,
     args: [applicantId, exceptAppId],
   });
-  return res.rows.map(r => ({ ...r, char_ids: JSON.parse(r.char_ids) }));
+  return res.rows.map(r => ({
+    ...r,
+    char_ids:      JSON.parse(r.char_ids),
+    roles_offered: r.roles_offered ? JSON.parse(r.roles_offered) : [],
+  }));
 }
 
 async function getApplication(appId) {
   const res = await db.execute({ sql: `SELECT * FROM lfg_applications WHERE id=?`, args: [appId] });
   const row = res.rows[0];
   if (!row) return null;
-  return { ...row, char_ids: JSON.parse(row.char_ids) };
+  return {
+    ...row,
+    char_ids:      JSON.parse(row.char_ids),
+    roles_offered: row.roles_offered ? JSON.parse(row.roles_offered) : [],
+  };
 }
 
 async function setApplicationStatus(appId, status) {
@@ -314,7 +328,11 @@ async function getLfgApplications(lfgId) {
     sql:  `SELECT * FROM lfg_applications WHERE lfg_id=? AND status != 'cancelled'`,
     args: [lfgId],
   });
-  return res.rows.map(r => ({ ...r, char_ids: JSON.parse(r.char_ids) }));
+  return res.rows.map(r => ({
+    ...r,
+    char_ids:      JSON.parse(r.char_ids),
+    roles_offered: r.roles_offered ? JSON.parse(r.roles_offered) : [],
+  }));
 }
 
 // Check if a user already has a pending/approved application for a group
@@ -334,6 +352,7 @@ module.exports = {
   createLfgGroup, setLfgMgmtChannel, setLfgVoiceChannel, getLfgGroup, getLfgGroupByVoiceChannel, closeLfgGroup, getLfgSpotsLeft,
   addLfgAnnouncement, getLfgAnnouncements, deleteLfgAnnouncements, deleteLfgAnnouncement, getExpiredAnnouncements,
   createApplication, setApplicationMgmtMsg, setApplicationInviteMsg, setApplicationInviteChannel,
+  setApplicationApprovedRole,
   getApplication, setApplicationStatus, cancelOtherApplications, getOtherPendingApplications,
   getLfgApplications, getExistingApplication,
 };

@@ -8,7 +8,9 @@ const {
 const db = require('../../../db');
 const { sessionSet, sessionGet, sessionDelete, fetchChannel } = require('../../../utils');
 
-// ── In-memory: userId → { lfgId, selectedCharIds } ───────────────────────────
+const ROLE_LABELS = { tank: '🛡️ Tank', healer: '💚 Healer', dps: '⚔️ DPS' };
+
+// ── In-memory: userId → { lfgId, selectedCharIds, selectedRoles } ─────────────
 const sessions = new Map();
 
 // ── "Bewerben" button on announcement ────────────────────────────────────────
@@ -19,7 +21,6 @@ async function handleApplyButton(interaction) {
   if (!group || group.status !== 'open') {
     return interaction.reply({ content: '❌ Diese LFG-Gruppe ist nicht mehr offen.', ephemeral: true });
   }
-
   if (group.creator_id === interaction.user.id) {
     return interaction.reply({ content: '❌ Du kannst dich nicht für deine eigene LFG bewerben.', ephemeral: true });
   }
@@ -42,7 +43,7 @@ async function handleApplyButton(interaction) {
     });
   }
 
-  sessionSet(sessions, interaction.user.id, { lfgId, selectedCharIds: [] });
+  sessionSet(sessions, interaction.user.id, { lfgId, selectedCharIds: [], selectedRoles: [] });
 
   const charSelect = new StringSelectMenuBuilder()
     .setCustomId('lfgapply_chars')
@@ -55,10 +56,24 @@ async function handleApplyButton(interaction) {
       value:       String(c.id),
     })));
 
+  // Only show roles the keyholder is looking for
+  const roleOptions = group.roles_wanted.map(r => ({
+    label: ROLE_LABELS[r] ?? r,
+    value: r,
+  }));
+
+  const roleSelect = new StringSelectMenuBuilder()
+    .setCustomId('lfgapply_roles')
+    .setPlaceholder('Welche Rolle(n) kannst du spielen?')
+    .setMinValues(1)
+    .setMaxValues(roleOptions.length)
+    .addOptions(roleOptions);
+
   await interaction.reply({
-    content: `**Bewerbung für ${group.dungeon} +${group.key_level}**\nWähle die Charaktere, mit denen du spielen möchtest.`,
+    content: `**Bewerbung für ${group.dungeon} +${group.key_level}**\nWähle deine Charaktere und die Rolle(n), die du spielen kannst.`,
     components: [
       new ActionRowBuilder().addComponents(charSelect),
+      new ActionRowBuilder().addComponents(roleSelect),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('lfgapply_confirm').setLabel('Bewerben').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('lfgapply_cancel').setLabel('Abbrechen').setStyle(ButtonStyle.Secondary),
@@ -68,13 +83,17 @@ async function handleApplyButton(interaction) {
   });
 }
 
-// ── Character select update ───────────────────────────────────────────────────
+// ── Select menu updates ───────────────────────────────────────────────────────
 async function handleApplySelect(interaction) {
   const session = sessionGet(sessions, interaction.user.id);
   if (!session) {
     return interaction.update({ content: '❌ Sitzung abgelaufen. Klicke erneut auf Bewerben.', components: [] });
   }
-  session.selectedCharIds = interaction.values.map(v => parseInt(v, 10));
+  if (interaction.customId === 'lfgapply_chars') {
+    session.selectedCharIds = interaction.values.map(v => parseInt(v, 10));
+  } else if (interaction.customId === 'lfgapply_roles') {
+    session.selectedRoles = interaction.values;
+  }
   await interaction.deferUpdate();
 }
 
@@ -90,11 +109,13 @@ async function handleApplyConfirm(interaction) {
   if (!session.selectedCharIds.length) {
     return interaction.followUp({ content: '❌ Bitte wähle mindestens einen Charakter aus.', ephemeral: true });
   }
+  if (!session.selectedRoles.length) {
+    return interaction.followUp({ content: '❌ Bitte wähle mindestens eine Rolle aus.', ephemeral: true });
+  }
 
-  const { lfgId, selectedCharIds } = session;
+  const { lfgId, selectedCharIds, selectedRoles } = session;
   sessionDelete(sessions, interaction.user.id);
 
-  // Re-check group is still open
   const group = await db.getLfgGroup(lfgId);
   if (!group || group.status !== 'open') {
     return interaction.editReply({ content: '❌ Diese LFG-Gruppe ist nicht mehr offen.', components: [] });
@@ -105,22 +126,20 @@ async function handleApplyConfirm(interaction) {
     return interaction.editReply({ content: '❌ Diese Gruppe ist bereits voll.', components: [] });
   }
 
-  // Create application in DB
   const appId = await db.createApplication({
     lfgId,
-    applicantId: interaction.user.id,
-    charIds:     selectedCharIds,
+    applicantId:  interaction.user.id,
+    charIds:      selectedCharIds,
+    rolesOffered: selectedRoles,
   });
 
-  // Fetch char info for the card
-  const charRows = await Promise.all(selectedCharIds.map(id => db.getCharacterById(id)));
+  const charRows   = await Promise.all(selectedCharIds.map(id => db.getCharacterById(id)));
   const validChars = charRows.filter(Boolean);
   const charLines  = validChars.map(c => `• ${c.char_name} — ${c.realm} (${c.class ?? '?'} / ${c.spec ?? '?'} • ${c.rio_score ?? 0} IO)`).join('\n');
+  const rolesText  = selectedRoles.map(r => ROLE_LABELS[r] ?? r).join(', ');
 
-  // Post application card in keyholder's mgmt channel
   const guild      = interaction.guild;
   const mgmtChannel = await fetchChannel(guild, group.mgmt_channel_id);
-
   if (!mgmtChannel) {
     console.warn(`Mgmt channel ${group.mgmt_channel_id} not found for LFG ${lfgId}`);
     return interaction.editReply({ content: '❌ Management-Channel nicht gefunden.', components: [] });
@@ -131,8 +150,9 @@ async function handleApplyConfirm(interaction) {
     .setTitle('Neue Bewerbung')
     .setAuthor({ name: interaction.user.displayName, iconURL: interaction.user.displayAvatarURL() })
     .addFields(
-      { name: 'Spieler',     value: `${interaction.user}`,  inline: true },
-      { name: 'Charaktere',  value: charLines || '—',        inline: false },
+      { name: 'Spieler',    value: `${interaction.user}`, inline: true },
+      { name: 'Rolle(n)',   value: rolesText,              inline: true },
+      { name: 'Charaktere', value: charLines || '—',       inline: false },
     )
     .setFooter({ text: `Bewerbungs-ID: ${appId}` })
     .setTimestamp();
@@ -141,14 +161,8 @@ async function handleApplyConfirm(interaction) {
     embeds:     [appEmbed],
     components: [
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`lfgapprove_${appId}`)
-          .setLabel('Annehmen')
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId(`lfgreject_${appId}`)
-          .setLabel('Ablehnen')
-          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`lfgapprove_${appId}`).setLabel('Annehmen').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`lfgreject_${appId}`).setLabel('Ablehnen').setStyle(ButtonStyle.Danger),
       ),
     ],
   });
@@ -167,7 +181,6 @@ async function handleApplyCancel(interaction) {
   await interaction.update({ content: '❌ Bewerbung abgebrochen.', components: [] });
 }
 
-// Stub for /lfg apply command (kept as fallback)
 async function execute(interaction) {
   await interaction.reply({ content: '💡 Nutze den **Bewerben**-Button in den LFG-Channels.', ephemeral: true });
 }
