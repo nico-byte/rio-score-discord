@@ -9,6 +9,7 @@ const {
 } = require('discord.js');
 const db = require('../../../db');
 const { sessionSet, sessionGet, sessionDelete } = require('../../../utils');
+const { SCORE_REQ_MINS } = require('../../../roles');
 
 // ── Static data ───────────────────────────────────────────────────────────────
 const DUNGEONS = [
@@ -179,6 +180,18 @@ async function handleConfirm(interaction) {
   const existingGroup = await db.getOpenLfgByCreator(interaction.user.id);
   if (existingGroup) {
     return interaction.followUp({ content: '❌ Du hast bereits eine offene LFG-Gruppe. Beende sie zuerst, bevor du eine neue erstellst.', ephemeral: true });
+  }
+
+  const scoreReqMin = SCORE_REQ_MINS[session.scoreReq] ?? 0;
+  if (scoreReqMin > 0) {
+    const activeChars     = await db.getActiveCharacters(interaction.user.id);
+    const creatorBestScore = activeChars.reduce((max, c) => Math.max(max, c.rio_score ?? 0), 0);
+    if (creatorBestScore < scoreReqMin) {
+      return interaction.followUp({
+        content: `❌ Dein Score (${creatorBestScore.toLocaleString('de-DE')} IO) erfüllt die gewählte Anforderung **${SCORE_LABELS[session.scoreReq]}** nicht. Setze eine niedrigere Anforderung.`,
+        ephemeral: true,
+      });
+    }
   }
 
   sessionDelete(sessions, interaction.user.id);

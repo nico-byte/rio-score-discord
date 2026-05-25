@@ -1,3 +1,13 @@
+// Maps score_req option values (used in create.js / DB) to their minimum IO score
+const SCORE_REQ_MINS = {
+  none:     0,
+  enjoyer:  1500,
+  weekly:   2500,
+  pusher:   3000,
+  extreme:  3500,
+  hardcore: 4000,
+};
+
 const TIERS = [
   { min: 4000, roleId: process.env.ROLE_HARDCORE_PUSHER, label: '🟣 Hardcore Pusher 4k+', color: 0x8e44ad },
   { min: 3500, roleId: process.env.ROLE_EXTREME_PUSHER,  label: '🟤 Extreme Pusher 3k5+', color: 0xd35400 },
@@ -96,4 +106,4 @@ async function updateNickname(member, charName, score) {
   await member.setNickname(nick.slice(0, 32)).catch(() => {});
 }
 
-module.exports = { applyRoles, applyRolesFromActive, TIERS };
+module.exports = { applyRoles, applyRolesFromActive, TIERS, SCORE_REQ_MINS };

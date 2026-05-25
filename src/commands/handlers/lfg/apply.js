@@ -7,6 +7,7 @@ const {
 } = require('discord.js');
 const db = require('../../../db');
 const { sessionSet, sessionGet, sessionDelete, fetchChannel } = require('../../../utils');
+const { SCORE_REQ_MINS } = require('../../../roles');
 
 const ROLE_LABELS = { tank: '🛡️ Tank', healer: '💚 Healer', dps: '⚔️ DPS' };
 
@@ -73,6 +74,18 @@ async function handleApplyButton(interaction) {
   const spotsLeft = await db.getLfgSpotsLeft(lfgId);
   if (spotsLeft <= 0) {
     return interaction.reply({ content: '❌ Diese Gruppe ist bereits voll.', ephemeral: true });
+  }
+
+  const scoreReqMin = SCORE_REQ_MINS[group.score_req] ?? 0;
+  if (scoreReqMin > 0) {
+    const activeChars = await db.getActiveCharacters(interaction.user.id);
+    const bestScore   = activeChars.reduce((max, c) => Math.max(max, c.rio_score ?? 0), 0);
+    if (bestScore < scoreReqMin) {
+      return interaction.reply({
+        content: `❌ Dein Score (${bestScore.toLocaleString('de-DE')} IO) erfüllt die Mindestanforderung dieser Gruppe nicht (${scoreReqMin.toLocaleString('de-DE')} IO).`,
+        ephemeral: true,
+      });
+    }
   }
 
   const chars = await db.getCharacters(interaction.user.id);
