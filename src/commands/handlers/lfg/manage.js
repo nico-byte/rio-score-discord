@@ -157,45 +157,12 @@ async function handleApprove(interaction) {
     return interaction.reply({ content: '❌ Die Gruppe ist bereits voll.', ephemeral: true });
   }
 
+  // Read role from session (keyholder used the inline dropdown) or default to first offered
   const rolesOffered = app.roles_offered ?? [];
+  const session      = sessionGet(approvalSessions, interaction.user.id);
+  const approvedRole = session?.selectedRole ?? rolesOffered[0] ?? null;
+  sessionDelete(approvalSessions, interaction.user.id);
 
-  if (rolesOffered.length > 1) {
-    // Multiple roles — show keyholder a role picker first
-    sessionSet(approvalSessions, interaction.user.id, { appId, selectedRole: rolesOffered[0] });
-
-    const rolesText = rolesOffered.map(r => ROLE_LABELS[r] ?? r).join(', ');
-
-    await interaction.reply({
-      content: `Welche Rolle soll <@${app.applicant_id}> spielen?\n*Angeboten: ${rolesText}*`,
-      components: [
-        new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId(`lfgapproverolesel_${appId}`)
-            .setPlaceholder('Rolle auswählen')
-            .addOptions(rolesOffered.map((r, i) => ({
-              label:   ROLE_LABELS[r] ?? r,
-              value:   r,
-              default: i === 0,
-            }))),
-        ),
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`lfgapproveroleconfirm_${appId}`)
-            .setLabel('Bestätigen & Einladen')
-            .setStyle(ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId(`lfgapprovedismiss_${appId}`)
-            .setLabel('Abbrechen')
-            .setStyle(ButtonStyle.Secondary),
-        ),
-      ],
-      ephemeral: true,
-    });
-    return;
-  }
-
-  // Single role (or legacy application with no roles) — proceed directly
-  const approvedRole = rolesOffered[0] ?? null;
   await interaction.deferUpdate();
   await db.setApplicationStatus(appId, 'approved');
   await doApprove(interaction.client, interaction.guild, appId, app, group, approvedRole);
@@ -209,41 +176,6 @@ async function handleApproveRoleSelect(interaction) {
   }
   session.selectedRole = interaction.values[0];
   await interaction.deferUpdate();
-}
-
-// ── Role picker: confirm ──────────────────────────────────────────────────────
-async function handleApproveRoleConfirm(interaction) {
-  const appId   = parseInt(interaction.customId.split('_')[1], 10);
-  const session = sessionGet(approvalSessions, interaction.user.id);
-
-  if (!session || session.appId !== appId) {
-    return interaction.update({ content: '❌ Sitzung abgelaufen.', components: [] });
-  }
-
-  const { selectedRole } = session;
-  sessionDelete(approvalSessions, interaction.user.id);
-
-  const app = await db.getApplication(appId);
-  if (!app || app.status !== 'pending') {
-    return interaction.update({ content: '❌ Bewerbung ist nicht mehr verfügbar.', components: [] });
-  }
-
-  const group = await db.getLfgGroup(app.lfg_id);
-
-  await interaction.deferUpdate();
-  await db.setApplicationStatus(appId, 'approved');
-  await doApprove(interaction.client, interaction.guild, appId, app, group, selectedRole);
-
-  await interaction.message.edit({
-    content:    `✅ <@${app.applicant_id}> wurde als **${ROLE_LABELS[selectedRole] ?? selectedRole}** eingeladen!`,
-    components: [],
-  }).catch(() => {});
-}
-
-// ── Role picker: dismiss ──────────────────────────────────────────────────────
-async function handleApproveRoleDismiss(interaction) {
-  sessionDelete(approvalSessions, interaction.user.id);
-  await interaction.update({ content: '↩️ Abgebrochen — Bewerbung bleibt ausstehend.', components: [] });
 }
 
 // ── Reject application ────────────────────────────────────────────────────────
@@ -368,6 +300,6 @@ async function handleClose(interaction) {
 }
 
 module.exports = {
-  handleApprove, handleApproveRoleSelect, handleApproveRoleConfirm, handleApproveRoleDismiss,
+  handleApprove, handleApproveRoleSelect,
   handleReject, handleStart, handleClose,
 };

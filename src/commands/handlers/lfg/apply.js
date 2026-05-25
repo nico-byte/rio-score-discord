@@ -157,15 +157,31 @@ async function handleApplyConfirm(interaction) {
     .setFooter({ text: `Bewerbungs-ID: ${appId}` })
     .setTimestamp();
 
-  const mgmtMsg = await mgmtChannel.send({
-    embeds:     [appEmbed],
-    components: [
+  const cardComponents = [];
+
+  if (selectedRoles.length > 1) {
+    cardComponents.push(
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`lfgapprove_${appId}`).setLabel('Annehmen').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`lfgreject_${appId}`).setLabel('Ablehnen').setStyle(ButtonStyle.Danger),
+        new StringSelectMenuBuilder()
+          .setCustomId(`lfgapproverolesel_${appId}`)
+          .setPlaceholder('Welche Rolle soll der Spieler übernehmen?')
+          .addOptions(selectedRoles.map((r, i) => ({
+            label:   ROLE_LABELS[r] ?? r,
+            value:   r,
+            default: i === 0,
+          }))),
       ),
-    ],
-  });
+    );
+  }
+
+  cardComponents.push(
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`lfgapprove_${appId}`).setLabel('Annehmen').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`lfgreject_${appId}`).setLabel('Ablehnen').setStyle(ButtonStyle.Danger),
+    ),
+  );
+
+  const mgmtMsg = await mgmtChannel.send({ embeds: [appEmbed], components: cardComponents });
 
   await db.setApplicationMgmtMsg(appId, mgmtMsg.id);
 

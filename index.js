@@ -111,10 +111,6 @@ client.on('interactionCreate', async interaction => {
       await timed('BTN', id, who, () => apply.handleApplyCancel(interaction));
     } else if (id.startsWith('lfgapply_')) {
       await timed('BTN', id, who, () => apply.handleApplyButton(interaction));
-    } else if (id.startsWith('lfgapproveroleconfirm_')) {
-      await timed('BTN', id, who, () => manage.handleApproveRoleConfirm(interaction));
-    } else if (id.startsWith('lfgapprovedismiss_')) {
-      await timed('BTN', id, who, () => manage.handleApproveRoleDismiss(interaction));
     } else if (id.startsWith('lfgapprove_')) {
       await timed('BTN', id, who, () => manage.handleApprove(interaction));
     } else if (id.startsWith('lfgreject_')) {
