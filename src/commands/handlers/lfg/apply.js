@@ -19,10 +19,10 @@ function channelRoleFromId(channelId) {
 }
 
 function getRoleScore(char, role) {
-  if (role === 'tank')   return char.score_tank   || char.rio_score || 0;
-  if (role === 'healer') return char.score_healer || char.rio_score || 0;
-  if (role === 'dps')    return char.score_dps    || char.rio_score || 0;
-  return char.rio_score || 0;
+  if (role === 'tank')   return char.score_tank   ?? 0;
+  if (role === 'healer') return char.score_healer ?? 0;
+  if (role === 'dps')    return char.score_dps    ?? 0;
+  return 0;
 }
 
 function roleOptionDesc(char, role) {
